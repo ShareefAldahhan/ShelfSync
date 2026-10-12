@@ -1,0 +1,45 @@
+[
+  {
+    "id": "three-bags",
+    "sku": "SS-001",
+    "initial_shelf": 3,
+    "steps": [
+      {
+        "action": "reserve",
+        "quantity": 1
+      },
+      {
+        "action": "pos_sale",
+        "quantity": 3
+      }
+    ],
+    "expected": {
+      "shelf_units": 0,
+      "order_state": "SHORTAGE_PENDING",
+      "quarantined": true
+    }
+  },
+  {
+    "id": "last-unit-race",
+    "sku": "SS-002",
+    "initial_shelf": 1,
+    "steps": [
+      {
+        "action": "concurrent_reservations",
+        "customers": 2,
+        "quantity_each": 1
+      }
+    ],
+    "expected": {
+      "successful_reservations": 1,
+      "rejected_reservations": 1
+    }
+  },
+  {
+    "id": "out-of-stock",
+    "sku": "SS-011",
+    "expected": {
+      "available_to_promise": 0
+    }
+  }
+]

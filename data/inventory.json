@@ -1,0 +1,114 @@
+{
+  "store_id": "DEMO-001",
+  "inventory_type": "simulated",
+  "inventory": [
+    {
+      "product_id": "00000000-0000-4000-8000-000000000001",
+      "sku": "SS-001",
+      "shelf_units": 3,
+      "picked_units": 0,
+      "safety_buffer": 0,
+      "quarantined": false,
+      "quarantine_reason": null
+    },
+    {
+      "product_id": "00000000-0000-4000-8000-000000000002",
+      "sku": "SS-002",
+      "shelf_units": 1,
+      "picked_units": 0,
+      "safety_buffer": 0,
+      "quarantined": false,
+      "quarantine_reason": null
+    },
+    {
+      "product_id": "00000000-0000-4000-8000-000000000003",
+      "sku": "SS-003",
+      "shelf_units": 8,
+      "picked_units": 0,
+      "safety_buffer": 1,
+      "quarantined": false,
+      "quarantine_reason": null
+    },
+    {
+      "product_id": "00000000-0000-4000-8000-000000000004",
+      "sku": "SS-004",
+      "shelf_units": 6,
+      "picked_units": 0,
+      "safety_buffer": 0,
+      "quarantined": false,
+      "quarantine_reason": null
+    },
+    {
+      "product_id": "00000000-0000-4000-8000-000000000005",
+      "sku": "SS-005",
+      "shelf_units": 5,
+      "picked_units": 0,
+      "safety_buffer": 1,
+      "quarantined": false,
+      "quarantine_reason": null
+    },
+    {
+      "product_id": "00000000-0000-4000-8000-000000000006",
+      "sku": "SS-006",
+      "shelf_units": 10,
+      "picked_units": 0,
+      "safety_buffer": 0,
+      "quarantined": false,
+      "quarantine_reason": null
+    },
+    {
+      "product_id": "00000000-0000-4000-8000-000000000007",
+      "sku": "SS-007",
+      "shelf_units": 7,
+      "picked_units": 0,
+      "safety_buffer": 0,
+      "quarantined": false,
+      "quarantine_reason": null
+    },
+    {
+      "product_id": "00000000-0000-4000-8000-000000000008",
+      "sku": "SS-008",
+      "shelf_units": 12,
+      "picked_units": 0,
+      "safety_buffer": 0,
+      "quarantined": false,
+      "quarantine_reason": null
+    },
+    {
+      "product_id": "00000000-0000-4000-8000-000000000009",
+      "sku": "SS-009",
+      "shelf_units": 9,
+      "picked_units": 0,
+      "safety_buffer": 0,
+      "quarantined": false,
+      "quarantine_reason": null
+    },
+    {
+      "product_id": "00000000-0000-4000-8000-000000000010",
+      "sku": "SS-010",
+      "shelf_units": 4,
+      "picked_units": 0,
+      "safety_buffer": 0,
+      "quarantined": false,
+      "quarantine_reason": null
+    },
+    {
+      "product_id": "00000000-0000-4000-8000-000000000011",
+      "sku": "SS-011",
+      "shelf_units": 0,
+      "picked_units": 0,
+      "safety_buffer": 0,
+      "quarantined": false,
+      "quarantine_reason": null
+    },
+    {
+      "product_id": "00000000-0000-4000-8000-000000000012",
+      "sku": "SS-012",
+      "shelf_units": 6,
+      "picked_units": 0,
+      "safety_buffer": 0,
+      "quarantined": false,
+      "quarantine_reason": null
+    }
+  ]
+}

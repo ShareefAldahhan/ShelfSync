@@ -1,0 +1,14 @@
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+**/secrets.json
+**/appsettings.Development.json
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+coverage/
+**/serviceDependencies.local.json
