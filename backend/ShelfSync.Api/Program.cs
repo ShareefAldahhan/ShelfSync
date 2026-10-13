@@ -1,7 +1,8 @@
 
 using Npgsql;
 using ShelfSync.Api.Repositories;
-
+using ShelfSync.Api.Models;
+using ShelfSync.Api.Services;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,10 +14,43 @@ var dataSource = NpgsqlDataSource.Create(connectionString);
 
 builder.Services.AddSingleton(dataSource);
 builder.Services.AddScoped<ProductRepository>();
+builder.Services.AddScoped<ReservationService>();
+builder.Services.AddHostedService<ReservationExpirationWorker>();
+builder.Services.AddSingleton<ReservationExpirationService>();
+builder.Services.AddHostedService<ReservationExpirationWorker>();
 
 var app = builder.Build();
 
 // Liveness: checks whether the API process can respond.
+
+app.MapPost("/api/reservations", async (
+	ReservationRequest request,
+	HttpRequest httpRequest,
+	ReservationService service,
+	CancellationToken cancellationToken) =>
+{
+	if (!httpRequest.Headers.TryGetValue(
+			"Idempotency-Key", out var keyValues) ||
+		keyValues.Count != 1 ||
+		!Guid.TryParse(keyValues[0], out var requestKey) ||
+		requestKey == Guid.Empty)
+	{
+		return Results.BadRequest(new
+		{
+			error = "A valid Idempotency-Key UUID header is required."
+		});
+	}
+
+	var result = await service.CreateAsync(
+		request,
+		requestKey,
+		cancellationToken);
+
+	return Results.Content(
+		result.Json,
+		"application/json",
+		statusCode: result.StatusCode);
+});
 
 app.MapGet("/api/products", async (
 	ProductRepository repository,
