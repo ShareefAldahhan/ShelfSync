@@ -1,4 +1,3 @@
-
 using System.Text.Json;
 using Npgsql;
 using ShelfSync.Api.Models;
@@ -8,547 +7,181 @@ namespace ShelfSync.Tests;
 
 public sealed class ReservationIntegrationTests
 {
+    [Fact]
+    public async Task CompletionFailure_RollsBackReservationAndIdempotencyClaim()
+    {
+        await using var scope = await PostgresTestScope.CreateAsync();
+        var requestKey = scope.NewRequestKey();
+        await scope.InstallCompletionFailureAsync(requestKey);
+        var service = new ReservationService(scope.Db);
 
-	[Fact]
-	public async Task ExpiredReservation_TransitionsOnce()
-	{
-		var connectionString = Environment.GetEnvironmentVariable(
-			"SHELFSYNC_TEST_CONNECTION");
+        // The trigger checks that both order and RESERVE event exist inside the
+        // transaction before raising this specific exception at response completion.
+        var exception = await Assert.ThrowsAsync<PostgresException>(() =>
+            service.CreateAsync(new ReservationRequest(scope.ProductId, 2), requestKey));
+        Assert.Equal("P0001", exception.SqlState);
+        Assert.Equal("ShelfSync test-only reservation completion failure", exception.MessageText);
 
-		Assert.False(
-			string.IsNullOrWhiteSpace(connectionString),
-			"SHELFSYNC_TEST_CONNECTION must be configured.");
-
-		var builder = new NpgsqlConnectionStringBuilder(connectionString);
-		Assert.Equal("shelfsync_test", builder.Database);
-
-		await using var db = NpgsqlDataSource.Create(builder.ConnectionString);
-
-		var productId = Guid.NewGuid();
-		var requestKey = Guid.NewGuid();
-
-		try
-		{
-			// Create a dedicated test product and inventory.
-			await using (var connection = await db.OpenConnectionAsync())
-			{
-				const string productSql = """
-                INSERT INTO products (id, sku, name, price_cents)
-                VALUES ($1, $2, 'Expiration Test Product', 1000);
-                """;
-
-				await using (var command =
-					new NpgsqlCommand(productSql, connection))
-				{
-					command.Parameters.AddWithValue(productId);
-					command.Parameters.AddWithValue($"TEST-{productId:N}");
-					await command.ExecuteNonQueryAsync();
-				}
-
-				const string inventorySql = """
-                INSERT INTO inventory
-                    (product_id, shelf_units, picked_units,
-                     safety_buffer, quarantined)
-                VALUES ($1, 10, 0, 0, FALSE);
-                """;
-
-				await using (var command =
-					new NpgsqlCommand(inventorySql, connection))
-				{
-					command.Parameters.AddWithValue(productId);
-					await command.ExecuteNonQueryAsync();
-				}
-			}
-
-			var reservationService = new ReservationService(db);
-
-			var result = await reservationService.CreateAsync(
-				new ReservationRequest(productId, 2),
-				requestKey);
-
-			Assert.Equal(201, result.StatusCode);
-
-			using var document = JsonDocument.Parse(result.Json);
-			var orderId = document.RootElement.GetProperty("orderId").GetGuid();
-
-			// Make the reservation overdue.
-			await using (var connection = await db.OpenConnectionAsync())
-			{
-				const string expireSql = """
-                UPDATE orders
-                SET expires_at = clock_timestamp() - INTERVAL '1 second'
-                WHERE id = $1
-                  AND state = 'RESERVED'
-                  AND created_at < clock_timestamp() - INTERVAL '2 seconds';
-                """;
-
-				// Ensure created_at remains earlier than expires_at.
-				await Task.Delay(TimeSpan.FromSeconds(3));
-
-				await using var command =
-					new NpgsqlCommand(expireSql, connection);
-
-				command.Parameters.AddWithValue(orderId);
-				Assert.Equal(1, await command.ExecuteNonQueryAsync());
-			}
-
-			var expirationService = new ReservationExpirationService(db);
-
-			// First sweep should expire our reservation.
-			var firstCount = await expirationService.ExpireBatchAsync();
-
-			// Second sweep must not expire it again.
-			var secondCount = await expirationService.ExpireBatchAsync();
-
-			Assert.True(firstCount >= 1);
-			Assert.Equal(0, secondCount);
-
-			await using (var connection = await db.OpenConnectionAsync())
-			{
-				const string verifySql = """
-                SELECT
-                    o.state,
-                    (SELECT COUNT(*)
-                     FROM inventory_events e
-                     WHERE e.order_id = o.id AND e.kind = 'EXPIRE')
-                FROM orders o
-                WHERE o.id = $1;
-                """;
-
-				await using var command =
-					new NpgsqlCommand(verifySql, connection);
-
-				command.Parameters.AddWithValue(orderId);
-
-				await using var reader = await command.ExecuteReaderAsync();
-
-				Assert.True(await reader.ReadAsync());
-				Assert.Equal("EXPIRED", reader.GetString(0));
-				Assert.Equal(1L, reader.GetInt64(1));
-			}
-		}
-		finally
-		{
-			await using var connection = await db.OpenConnectionAsync();
-			await using var transaction =
-				await connection.BeginTransactionAsync();
-
-			string[] cleanupStatements =
-			[
-				"DELETE FROM operation_requests WHERE operation = 'RESERVE' AND request_key = $1;",
-			"DELETE FROM inventory_events WHERE product_id = $1;",
-			"DELETE FROM orders WHERE product_id = $1;",
-			"DELETE FROM inventory WHERE product_id = $1;",
-			"DELETE FROM products WHERE id = $1;"
-			];
-
-			for (var i = 0; i < cleanupStatements.Length; i++)
-			{
-				await using var command = new NpgsqlCommand(
-					cleanupStatements[i], connection, transaction);
-
-				command.Parameters.AddWithValue(
-					i == 0 ? requestKey : productId);
-
-				await command.ExecuteNonQueryAsync();
-			}
-
-			await transaction.CommitAsync();
-		}
-	}
-
-	[Fact]
-	public async Task ConcurrentReservations_NeverOversell()
-	{
-		var connectionString = Environment.GetEnvironmentVariable(
-			"SHELFSYNC_TEST_CONNECTION");
-
-		Assert.False(string.IsNullOrWhiteSpace(connectionString));
-
-		var builder = new NpgsqlConnectionStringBuilder(connectionString);
-		Assert.Equal("shelfsync_test", builder.Database);
-
-		await using var db = NpgsqlDataSource.Create(builder.ConnectionString);
-
-		var productId = Guid.NewGuid();
-		var requestKeys = Enumerable.Range(0, 10)
-			.Select(_ => Guid.NewGuid())
-			.ToArray();
-
-		try
-		{
-			await using (var connection = await db.OpenConnectionAsync())
-			{
-				const string productSql = """
-                INSERT INTO products (id, sku, name, price_cents)
-                VALUES ($1, $2, 'Concurrency Test Product', 1000);
-                """;
-
-				await using (var command =
-					new NpgsqlCommand(productSql, connection))
-				{
-					command.Parameters.AddWithValue(productId);
-					command.Parameters.AddWithValue($"TEST-{productId:N}");
-					await command.ExecuteNonQueryAsync();
-				}
-
-				const string inventorySql = """
-                INSERT INTO inventory
-                    (product_id, shelf_units, picked_units,
-                     safety_buffer, quarantined)
-                VALUES ($1, 6, 0, 0, FALSE);
-                """;
-
-				await using (var command =
-					new NpgsqlCommand(inventorySql, connection))
-				{
-					command.Parameters.AddWithValue(productId);
-					await command.ExecuteNonQueryAsync();
-				}
-			}
-
-			var service = new ReservationService(db);
-			var request = new ReservationRequest(productId, 1);
-
-			// Launch ten independent reservation attempts.
-			var tasks = requestKeys.Select(
-				key => service.CreateAsync(request, key));
-
-			var results = await Task.WhenAll(tasks);
-
-			Assert.Equal(6, results.Count(r => r.StatusCode == 201));
-			Assert.Equal(4, results.Count(r => r.StatusCode == 409));
-
-			await using var verifyConnection = await db.OpenConnectionAsync();
-
-			const string verifySql = """
+        // A separate connection observes only committed state after service disposal.
+        await using var connection = await scope.Db.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand("""
             SELECT
-                (SELECT COALESCE(SUM(quantity), 0)
-                 FROM orders
+                (SELECT COUNT(*) FROM orders WHERE product_id = $1),
+                (SELECT COUNT(*) FROM inventory_events
+                 WHERE product_id = $1 AND kind = 'RESERVE'),
+                (SELECT COUNT(*) FROM operation_requests
+                 WHERE operation = 'RESERVE' AND request_key = $2),
+                (SELECT shelf_units FROM inventory WHERE product_id = $1);
+            """, connection);
+        command.Parameters.AddWithValue(scope.ProductId);
+        command.Parameters.AddWithValue(requestKey);
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(0L, reader.GetInt64(0));
+        Assert.Equal(0L, reader.GetInt64(1));
+        // Counts all claim rows, whether response fields are NULL or completed.
+        Assert.Equal(0L, reader.GetInt64(2));
+        Assert.Equal(10, reader.GetInt32(3));
+        // Scope disposal drops its unique trigger/function even if assertions fail.
+    }
+
+    [Fact]
+    public async Task ExpiredReservation_TransitionsOnce()
+    {
+        await using var scope = await PostgresTestScope.CreateAsync();
+        var service = new ReservationService(scope.Db);
+        var result = await service.CreateAsync(
+            new ReservationRequest(scope.ProductId, 2), scope.NewRequestKey());
+        Assert.Equal(201, result.StatusCode);
+        using var document = JsonDocument.Parse(result.Json);
+        var orderId = document.RootElement.GetProperty("orderId").GetGuid();
+
+        await using (var connection = await scope.Db.OpenConnectionAsync())
+        {
+            // Shift BOTH timestamps using one decision time so the real schema's
+            // expires_at > created_at and updated_at >= created_at checks hold.
+            await using var command = new NpgsqlCommand("""
+                WITH decision AS (SELECT clock_timestamp() AS now_at)
+                UPDATE orders
+                SET created_at = decision.now_at - INTERVAL '2 hours',
+                    expires_at = decision.now_at - INTERVAL '1 hour',
+                    updated_at = decision.now_at
+                FROM decision
+                WHERE id = $1 AND product_id = $2 AND state = 'RESERVED';
+                """, connection);
+            command.Parameters.AddWithValue(orderId);
+            command.Parameters.AddWithValue(scope.ProductId);
+            Assert.Equal(1, await command.ExecuteNonQueryAsync());
+        }
+
+        var expirationService = new ReservationExpirationService(scope.Db);
+        // Batch counts may include unrelated records. Check only our order and
+        // allow older test records to drain ahead of it, without wall-clock waits.
+        var expired = false;
+        for (var sweep = 0; sweep < 20 && !expired; sweep++)
+        {
+            await expirationService.ExpireBatchAsync();
+            await using var connection = await scope.Db.OpenConnectionAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT state FROM orders WHERE id = $1 AND product_id = $2;", connection);
+            command.Parameters.AddWithValue(orderId);
+            command.Parameters.AddWithValue(scope.ProductId);
+            expired = (string?)await command.ExecuteScalarAsync() == "EXPIRED";
+        }
+        Assert.True(expired, "The test reservation must expire within the bounded sweep budget.");
+
+        await expirationService.ExpireBatchAsync();
+        await expirationService.ExpireBatchAsync();
+
+        await using var verifyConnection = await scope.Db.OpenConnectionAsync();
+        await using var verify = new NpgsqlCommand("""
+            SELECT o.state,
+                (SELECT COUNT(*) FROM inventory_events e
+                 WHERE e.order_id = o.id AND e.product_id = o.product_id AND e.kind = 'EXPIRE')
+            FROM orders o WHERE o.id = $1 AND o.product_id = $2;
+            """, verifyConnection);
+        verify.Parameters.AddWithValue(orderId);
+        verify.Parameters.AddWithValue(scope.ProductId);
+        await using var reader = await verify.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal("EXPIRED", reader.GetString(0));
+        Assert.Equal(1L, reader.GetInt64(1));
+    }
+
+    [Fact]
+    public async Task ConcurrentReservations_NeverOversell()
+    {
+        await using var scope = await PostgresTestScope.CreateAsync(shelfUnits: 6);
+        var requestKeys = Enumerable.Range(0, 10).Select(_ => scope.NewRequestKey()).ToArray();
+        var service = new ReservationService(scope.Db);
+        var request = new ReservationRequest(scope.ProductId, 1);
+        var results = await Task.WhenAll(requestKeys.Select(key => service.CreateAsync(request, key)));
+        Assert.Equal(6, results.Count(r => r.StatusCode == 201));
+        Assert.Equal(4, results.Count(r => r.StatusCode == 409));
+
+        await using var connection = await scope.Db.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand("""
+            SELECT
+                (SELECT COALESCE(SUM(quantity), 0) FROM orders
                  WHERE product_id = $1 AND state = 'RESERVED'),
-                (SELECT COUNT(*)
-                 FROM inventory_events
+                (SELECT COUNT(*) FROM inventory_events
                  WHERE product_id = $1 AND kind = 'RESERVE');
-            """;
-
-			await using var verifyCommand =
-				new NpgsqlCommand(verifySql, verifyConnection);
-
-			verifyCommand.Parameters.AddWithValue(productId);
-
-			await using var reader =
-				await verifyCommand.ExecuteReaderAsync();
-
-			Assert.True(await reader.ReadAsync());
-			Assert.Equal(6L, reader.GetInt64(0));
-			Assert.Equal(6L, reader.GetInt64(1));
-		}
-		finally
-		{
-			await using var connection = await db.OpenConnectionAsync();
-			await using var transaction =
-				await connection.BeginTransactionAsync();
-
-			// Remove all ten idempotency records first.
-			const string keysSql = """
-            DELETE FROM operation_requests
-            WHERE operation = 'RESERVE'
-              AND request_key = ANY($1);
-            """;
-
-			await using (var command =
-				new NpgsqlCommand(keysSql, connection, transaction))
-			{
-				command.Parameters.AddWithValue(requestKeys);
-				await command.ExecuteNonQueryAsync();
-			}
-
-			string[] cleanupStatements =
-			[
-				"DELETE FROM inventory_events WHERE product_id = $1;",
-			"DELETE FROM orders WHERE product_id = $1;",
-			"DELETE FROM inventory WHERE product_id = $1;",
-			"DELETE FROM products WHERE id = $1;"
-			];
-
-			foreach (var sql in cleanupStatements)
-			{
-				await using var command =
-					new NpgsqlCommand(sql, connection, transaction);
-
-				command.Parameters.AddWithValue(productId);
-				await command.ExecuteNonQueryAsync();
-			}
-
-			await transaction.CommitAsync();
-		}
-	}
-
-
-	[Fact]
-	public async Task ReusingKeyWithDifferentQuantity_Returns409()
-	{
-		var connectionString = Environment.GetEnvironmentVariable(
-			"SHELFSYNC_TEST_CONNECTION");
-
-		Assert.False(string.IsNullOrWhiteSpace(connectionString));
-
-		var builder = new NpgsqlConnectionStringBuilder(connectionString);
-		Assert.Equal("shelfsync_test", builder.Database);
-
-		await using var db = NpgsqlDataSource.Create(builder.ConnectionString);
-
-		var productId = Guid.NewGuid();
-		var requestKey = Guid.NewGuid();
-
-		try
-		{
-			await using (var connection = await db.OpenConnectionAsync())
-			{
-				const string productSql = """
-                INSERT INTO products (id, sku, name, price_cents)
-                VALUES ($1, $2, 'Idempotency Conflict Test', 1000);
-                """;
-
-				await using (var command = new NpgsqlCommand(productSql, connection))
-				{
-					command.Parameters.AddWithValue(productId);
-					command.Parameters.AddWithValue($"TEST-{productId:N}");
-					await command.ExecuteNonQueryAsync();
-				}
-
-				const string inventorySql = """
-                INSERT INTO inventory
-                    (product_id, shelf_units, picked_units,
-                     safety_buffer, quarantined)
-                VALUES ($1, 10, 0, 0, FALSE);
-                """;
-
-				await using (var command = new NpgsqlCommand(inventorySql, connection))
-				{
-					command.Parameters.AddWithValue(productId);
-					await command.ExecuteNonQueryAsync();
-				}
-			}
-
-			var service = new ReservationService(db);
-
-			var first = await service.CreateAsync(
-				new ReservationRequest(productId, 2),
-				requestKey);
-
-			var second = await service.CreateAsync(
-				new ReservationRequest(productId, 3),
-				requestKey);
-
-			Assert.Equal(201, first.StatusCode);
-			Assert.Equal(409, second.StatusCode);
-			Assert.Contains(
-				"Idempotency key reused with different data.",
-				second.Json);
-
-			await using var verifyConnection = await db.OpenConnectionAsync();
-
-			const string countSql = """
-            SELECT COUNT(*)
-            FROM orders
-            WHERE product_id = $1;
-            """;
-
-			await using var countCommand =
-				new NpgsqlCommand(countSql, verifyConnection);
-
-			countCommand.Parameters.AddWithValue(productId);
-
-			var orderCount = (long)(await countCommand.ExecuteScalarAsync())!;
-
-			Assert.Equal(1L, orderCount);
-		}
-		finally
-		{
-			await using var connection = await db.OpenConnectionAsync();
-			await using var transaction =
-				await connection.BeginTransactionAsync();
-
-			string[] cleanupStatements =
-			[
-				"DELETE FROM operation_requests WHERE operation = 'RESERVE' AND request_key = $1;",
-			"DELETE FROM inventory_events WHERE product_id = $1;",
-			"DELETE FROM orders WHERE product_id = $1;",
-			"DELETE FROM inventory WHERE product_id = $1;",
-			"DELETE FROM products WHERE id = $1;"
-			];
-
-			for (var i = 0; i < cleanupStatements.Length; i++)
-			{
-				await using var command = new NpgsqlCommand(
-					cleanupStatements[i], connection, transaction);
-
-				command.Parameters.AddWithValue(
-					i == 0 ? requestKey : productId);
-
-				await command.ExecuteNonQueryAsync();
-			}
-
-			await transaction.CommitAsync();
-		}
-	}
-
-	[Fact]
-	public async Task RetryingReservation_ReturnsSameOrder()
-	{
-		var connectionString = Environment.GetEnvironmentVariable(
-			"SHELFSYNC_TEST_CONNECTION");
-
-		Assert.False(
-			string.IsNullOrWhiteSpace(connectionString),
-			"SHELFSYNC_TEST_CONNECTION must be configured.");
-
-		var builder = new NpgsqlConnectionStringBuilder(connectionString);
-
-		Assert.Equal("shelfsync_test", builder.Database);
-
-		await using var db = NpgsqlDataSource.Create(
-			builder.ConnectionString);
-
-		var productId = Guid.NewGuid();
-		var requestKey = Guid.NewGuid();
-
-		try
-		{
-			// ARRANGE: Create a test product.
-			await using (var connection = await db.OpenConnectionAsync())
-			{
-				const string productSql = """
-                    INSERT INTO products (id, sku, name, price_cents)
-                    VALUES ($1, $2, 'Integration Test Product', 1000);
-                    """;
-
-				await using (var command =
-					new NpgsqlCommand(productSql, connection))
-				{
-					command.Parameters.AddWithValue(productId);
-					command.Parameters.AddWithValue($"TEST-{productId:N}");
-
-					await command.ExecuteNonQueryAsync();
-				}
-
-				// Create inventory with 10 available units.
-				const string inventorySql = """
-                    INSERT INTO inventory
-                        (product_id, shelf_units, picked_units,
-                         safety_buffer, quarantined)
-                    VALUES ($1, 10, 0, 0, FALSE);
-                    """;
-
-				await using (var command =
-					new NpgsqlCommand(inventorySql, connection))
-				{
-					command.Parameters.AddWithValue(productId);
-
-					await command.ExecuteNonQueryAsync();
-				}
-			}
-
-			var service = new ReservationService(db);
-			var request = new ReservationRequest(productId, 2);
-
-			// ACT: Submit the same request twice.
-			var first = await service.CreateAsync(request, requestKey);
-			var second = await service.CreateAsync(request, requestKey);
-
-			// ASSERT: Both responses must be identical.
-			Assert.Equal(201, first.StatusCode);
-			Assert.Equal(first.StatusCode, second.StatusCode);
-
-			using var firstDocument = JsonDocument.Parse(first.Json);
-			using var secondDocument = JsonDocument.Parse(second.Json);
-
-			Assert.True(
-				JsonElement.DeepEquals(
-					firstDocument.RootElement,
-					secondDocument.RootElement),
-				"The retried reservation must return the same JSON data.");
-
-			using var document = JsonDocument.Parse(first.Json);
-
-			var orderId = document.RootElement
-				.GetProperty("orderId")
-				.GetGuid();
-
-			// Verify PostgreSQL contains exactly one order
-			// and one RESERVE audit event.
-			await using (var connection = await db.OpenConnectionAsync())
-			{
-				const string verifySql = """
-                    SELECT
-                        (SELECT COUNT(*) FROM orders
-                         WHERE product_id = $1),
-                        (SELECT COUNT(*) FROM inventory_events
-                         WHERE order_id = $2 AND kind = 'RESERVE');
-                    """;
-
-				await using var command =
-					new NpgsqlCommand(verifySql, connection);
-
-				command.Parameters.AddWithValue(productId);
-				command.Parameters.AddWithValue(orderId);
-
-				await using var reader =
-					await command.ExecuteReaderAsync();
-
-				Assert.True(await reader.ReadAsync());
-				Assert.Equal(1L, reader.GetInt64(0));
-				Assert.Equal(1L, reader.GetInt64(1));
-			}
-		}
-		finally
-		{
-			// CLEANUP: Delete only records belonging to this test.
-			// A transaction ensures cleanup is atomic.
-			await using var connection = await db.OpenConnectionAsync();
-			await using var transaction =
-				await connection.BeginTransactionAsync();
-
-			string[] cleanupStatements =
-			[
-				"""
-                DELETE FROM operation_requests
-                WHERE operation = 'RESERVE'
-                  AND request_key = $1;
-                """,
-				"""
-                DELETE FROM inventory_events
-                WHERE product_id = $1;
-                """,
-				"""
-                DELETE FROM orders
-                WHERE product_id = $1;
-                """,
-				"""
-                DELETE FROM inventory
-                WHERE product_id = $1;
-                """,
-				"""
-                DELETE FROM products
-                WHERE id = $1;
-                """
-			];
-
-			for (var i = 0; i < cleanupStatements.Length; i++)
-			{
-				await using var command = new NpgsqlCommand(
-					cleanupStatements[i],
-					connection,
-					transaction);
-
-				command.Parameters.AddWithValue(
-					i == 0 ? requestKey : productId);
-
-				await command.ExecuteNonQueryAsync();
-			}
-
-			await transaction.CommitAsync();
-		}
-	}
+            """, connection);
+        command.Parameters.AddWithValue(scope.ProductId);
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(6L, reader.GetInt64(0));
+        Assert.Equal(6L, reader.GetInt64(1));
+    }
+
+    [Fact]
+    public async Task ReusingKeyWithDifferentQuantity_Returns409()
+    {
+        await using var scope = await PostgresTestScope.CreateAsync();
+        var requestKey = scope.NewRequestKey();
+        var service = new ReservationService(scope.Db);
+        var first = await service.CreateAsync(new ReservationRequest(scope.ProductId, 2), requestKey);
+        var second = await service.CreateAsync(new ReservationRequest(scope.ProductId, 3), requestKey);
+        Assert.Equal(201, first.StatusCode);
+        Assert.Equal(409, second.StatusCode);
+        Assert.Contains("Idempotency key reused with different data.", second.Json);
+
+        await using var connection = await scope.Db.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand(
+            "SELECT COUNT(*) FROM orders WHERE product_id = $1;", connection);
+        command.Parameters.AddWithValue(scope.ProductId);
+        Assert.Equal(1L, (long)(await command.ExecuteScalarAsync())!);
+    }
+
+    [Fact]
+    public async Task RetryingReservation_ReturnsSameOrder()
+    {
+        await using var scope = await PostgresTestScope.CreateAsync();
+        var requestKey = scope.NewRequestKey();
+        var service = new ReservationService(scope.Db);
+        var request = new ReservationRequest(scope.ProductId, 2);
+        var first = await service.CreateAsync(request, requestKey);
+        var second = await service.CreateAsync(request, requestKey);
+        Assert.Equal(201, first.StatusCode);
+        Assert.Equal(first.StatusCode, second.StatusCode);
+        using var firstDocument = JsonDocument.Parse(first.Json);
+        using var secondDocument = JsonDocument.Parse(second.Json);
+        Assert.True(JsonElement.DeepEquals(firstDocument.RootElement, secondDocument.RootElement),
+            "The retried reservation must return the same JSON data.");
+        var orderId = firstDocument.RootElement.GetProperty("orderId").GetGuid();
+
+        await using var connection = await scope.Db.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand("""
+            SELECT
+                (SELECT COUNT(*) FROM orders WHERE product_id = $1),
+                (SELECT COUNT(*) FROM inventory_events
+                 WHERE product_id = $1 AND order_id = $2 AND kind = 'RESERVE');
+            """, connection);
+        command.Parameters.AddWithValue(scope.ProductId);
+        command.Parameters.AddWithValue(orderId);
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(1L, reader.GetInt64(0));
+        Assert.Equal(1L, reader.GetInt64(1));
+    }
 }

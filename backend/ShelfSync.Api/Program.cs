@@ -15,7 +15,6 @@ var dataSource = NpgsqlDataSource.Create(connectionString);
 builder.Services.AddSingleton(dataSource);
 builder.Services.AddScoped<ProductRepository>();
 builder.Services.AddScoped<ReservationService>();
-builder.Services.AddHostedService<ReservationExpirationWorker>();
 builder.Services.AddSingleton<ReservationExpirationService>();
 builder.Services.AddHostedService<ReservationExpirationWorker>();
 
