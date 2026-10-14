@@ -51,6 +51,35 @@ app.MapPost("/api/reservations", async (
 		statusCode: result.StatusCode);
 });
 
+app.MapPost("/api/reservations/{orderId:guid}/cancel", async (
+	Guid orderId,
+	HttpRequest httpRequest,
+	ReservationCancellationService service,
+	CancellationToken cancellationToken) =>
+{
+	if (!httpRequest.Headers.TryGetValue(
+			"Idempotency-Key", out var keyValues) ||
+		keyValues.Count != 1 ||
+		!Guid.TryParse(keyValues[0], out var requestKey) ||
+		requestKey == Guid.Empty)
+	{
+		return Results.BadRequest(new
+		{
+			error = "A valid Idempotency-Key UUID header is required."
+		});
+	}
+
+	var result = await service.CancelAsync(
+		orderId,
+		requestKey,
+		cancellationToken);
+
+	return Results.Content(
+		result.Json,
+		"application/json",
+		statusCode: result.StatusCode);
+});
+
 app.MapGet("/api/products", async (
 	ProductRepository repository,
 	CancellationToken cancellationToken) =>
