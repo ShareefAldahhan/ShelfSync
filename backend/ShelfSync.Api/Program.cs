@@ -21,11 +21,24 @@ builder.Services.AddScoped<OrderPickingService>();
 builder.Services.AddScoped<OrderShortageService>();
 builder.Services.AddScoped<OrderShortageResolutionService>();
 builder.Services.AddScoped<OrderFulfillmentService>();
-
+builder.Services.AddScoped<PosSaleService>();
 
 var app = builder.Build();
 
 // Liveness: checks whether the API process can respond.
+
+app.MapPost("/api/pos/sales", async (
+	PosSaleRequest request,
+	PosSaleService service,
+	CancellationToken cancellationToken) =>
+{
+	var result = await service.RecordAsync(request, cancellationToken);
+
+	return Results.Content(
+		result.Json,
+		"application/json",
+		statusCode: result.StatusCode);
+});
 
 
 app.MapPost("/api/orders/{orderId:guid}/fulfill", async (
