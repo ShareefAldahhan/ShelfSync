@@ -20,16 +20,18 @@ builder.Services.AddHostedService<ReservationExpirationWorker>();
 builder.Services.AddScoped<OrderPickingService>();
 builder.Services.AddScoped<OrderShortageService>();
 builder.Services.AddScoped<OrderShortageResolutionService>();
+builder.Services.AddScoped<OrderFulfillmentService>();
+
 
 var app = builder.Build();
 
 // Liveness: checks whether the API process can respond.
 
 
-app.MapPost("/api/orders/{orderId:guid}/resolve-shortage", async (
+app.MapPost("/api/orders/{orderId:guid}/fulfill", async (
 	Guid orderId,
 	HttpRequest httpRequest,
-	OrderShortageResolutionService service,
+	OrderFulfillmentService service,
 	CancellationToken cancellationToken) =>
 {
 	if (!httpRequest.Headers.TryGetValue(
@@ -44,7 +46,7 @@ app.MapPost("/api/orders/{orderId:guid}/resolve-shortage", async (
 		});
 	}
 
-	var result = await service.ResolveAsync(
+	var result = await service.FulfillAsync(
 		orderId,
 		requestKey,
 		cancellationToken);
@@ -53,6 +55,36 @@ app.MapPost("/api/orders/{orderId:guid}/resolve-shortage", async (
 		result.Json,
 		"application/json",
 		statusCode: result.StatusCode);
+});
+
+
+app.MapPost("/api/orders/{orderId:guid}/resolve-shortage", async (
+    Guid orderId,
+    HttpRequest httpRequest,
+    OrderShortageResolutionService service,
+    CancellationToken cancellationToken) =>
+{
+    if (!httpRequest.Headers.TryGetValue(
+            "Idempotency-Key", out var keyValues) ||
+        keyValues.Count != 1 ||
+        !Guid.TryParse(keyValues[0], out var requestKey) ||
+        requestKey == Guid.Empty)
+    {
+        return Results.BadRequest(new
+        {
+            error = "A valid Idempotency-Key UUID header is required."
+        });
+    }
+
+    var result = await service.ResolveAsync(
+        orderId,
+        requestKey,
+        cancellationToken);
+
+    return Results.Content(
+        result.Json,
+        "application/json",
+        statusCode: result.StatusCode);
 });
 
 
