@@ -17,10 +17,40 @@ builder.Services.AddScoped<ProductRepository>();
 builder.Services.AddScoped<ReservationService>();
 builder.Services.AddSingleton<ReservationExpirationService>();
 builder.Services.AddHostedService<ReservationExpirationWorker>();
+builder.Services.AddScoped<OrderPickingService>();
 
 var app = builder.Build();
 
 // Liveness: checks whether the API process can respond.
+
+app.MapPost("/api/orders/{orderId:guid}/pick", async (
+	Guid orderId,
+	HttpRequest httpRequest,
+	OrderPickingService service,
+	CancellationToken cancellationToken) =>
+{
+	if (!httpRequest.Headers.TryGetValue(
+			"Idempotency-Key", out var keyValues) ||
+		keyValues.Count != 1 ||
+		!Guid.TryParse(keyValues[0], out var requestKey) ||
+		requestKey == Guid.Empty)
+	{
+		return Results.BadRequest(new
+		{
+			error = "A valid Idempotency-Key UUID header is required."
+		});
+	}
+
+	var result = await service.PickAsync(
+		orderId,
+		requestKey,
+		cancellationToken);
+
+	return Results.Content(
+		result.Json,
+		"application/json",
+		statusCode: result.StatusCode);
+});
 
 app.MapPost("/api/reservations", async (
 	ReservationRequest request,
