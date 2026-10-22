@@ -1,74 +1,90 @@
 # ShelfSync
 
-A local portfolio application for inventory reservations, fulfillment, and store sales, using ASP.NET Core 10, PostgreSQL, Npgsql, React, TypeScript, and Vite.
+**Inventory reservations and order fulfillment with transactional stock protection.**
 
-See [the local release guide](docs/local-release.md) for one-command startup, operator setup, verification, security details and deployment instructions.
+ShelfSync models one fictional store where online reservations and point-of-sale sales share shelf inventory. The application prevents software operations from claiming the same available units, handles reservation expiry, and records stock movements in an audit ledger.
 
-## Implemented
+Built with **ASP.NET Core 10 · PostgreSQL 18 · Npgsql · React · TypeScript · Vite**.
 
-- Operator sign-in, protected API access, CSRF protection, and login rate limiting.
-- Product dashboard with shelf, picked, buffer and quarantine visibility.
-- Reservations with quantity validation, expiration, and idempotency.
-- Latest 100 orders, cancellation, picking, shortage reporting/resolution, and fulfillment.
-- POS sales with event-based deduplication.
-- Transactional stock updates, row locks, audit events, and background expiry.
-- UI errors, pending states, refresh, and safe retries for uncertain operations.
+![Orders dashboard with a verified cancelled reservation](docs/images/orders.png)
 
-Shelf counts are physical inventory, not a promise of available stock. The backend rechecks active reservations under locks on every mutation.
+## What works
 
-## Run locally (Windows PowerShell)
+- Searchable inventory dashboard with shelf, picked, safety-buffer and quarantine values.
+- Reservations with a 15-minute lifetime and safe idempotent retries.
+- Orders screen with search, state filters, cancellation, picking, shortage reporting/resolution and fulfillment.
+- POS sales with event-based deduplication and stock validation.
+- Row locks and atomic database transactions for inventory mutations and audit events.
+- Background expiry processing and explicit lifecycle rules.
+- Operator sign-in, protected API access, CSRF protection, login throttling and credential-change session invalidation.
+- A combined dashboard/API release package, local startup scripts and CI configuration.
 
-Prerequisites: .NET 10 SDK, Node.js compatible with Vite 8, PostgreSQL, and a development database provisioned using `database/` scripts. Review scripts before applying them; do not recreate an existing database.
+## Run locally
 
-Run `pwsh -File scripts/Set-Operator.ps1` to configure operator sign-in. Configure `ConnectionStrings:ShelfSync` using .NET user secrets for `backend/ShelfSync.Api`, or the `ConnectionStrings__ShelfSync` environment variable. Keep passwords out of source control and command history.
+Requirements: **PowerShell 7, .NET 10 SDK, Node.js 24, PostgreSQL 18**.
 
-From the repository directory:
+First configure a development database and its connection as described in [setup](docs/setup.md). On the original development machine the database connection is already configured.
 
-```powershell
-dotnet run --project backend/ShelfSync.Api --urls http://localhost:5000
-```
-
-In another terminal:
+From the repository root:
 
 ```powershell
-cd frontend
-npm ci
-npm run dev
+pwsh -File scripts/Set-Operator.ps1
+pwsh -File scripts/Start-Local.ps1 -Build
 ```
 
-Open http://localhost:5173. The Vite proxy sends `/api` and `/health` to the API on port 5000.
+Choose your operator password when prompted, then open **http://localhost:5000**. Default username: `operator`. Later starts need only `pwsh -File scripts/Start-Local.ps1`. The backend serves the compiled dashboard; no separate frontend server is needed.
 
-## Full local release verification
+For frontend development, run the backend on localhost:5000 and `npm ci` followed by `npm run dev` inside `frontend/`. Open localhost:5173; Vite proxies the API.
 
-Run `pwsh -File scripts/Verify-Release.ps1` to build and verify against an isolated PostgreSQL instance without changing your existing databases. All 42 integration tests and published workflow/security checks passed. Create a ZIP with `pwsh -File scripts/Publish.ps1 -Archive`.
-
-## Verification
+## Verify the release
 
 ```powershell
-npm --prefix frontend run build
-npm --prefix frontend run lint
-dotnet build tests/ShelfSync.Tests
-dotnet test tests/ShelfSync.Tests
+pwsh -File scripts/Verify-Release.ps1
 ```
 
-Integration tests require `SHELFSYNC_TEST_CONNECTION` configured securely in the current process. The test helper refuses any database name except `shelfsync_test`. Provision that separate database with the current schema and suitable test-role permissions before testing.
+This builds the release and runs the suite against a separate temporary, password-protected PostgreSQL instance. It does not modify the existing PostgreSQL service, databases or permissions. The temporary instance stops afterward; ignored diagnostic files remain under `artifacts/`.
 
-Manual walkthrough: reserve one unit, find the order, pick and fulfill it. Repeat with cancellation and shortage/resolution. Record a POS sale. Refresh to inspect stock. A retry after an uncertain response reuses its original key/event; keep the page open and resolve the operation before closing or reloading. Pending retry state is held in memory, not persisted across reloads.
+**Verified 22 October 2026:** 42 integration tests passed, zero failures/skips; published reservation/order/POS workflows, stock invariants, security checks, production HTTP rejection, frontend build and lint passed. A release also built from a clean committed-source snapshot. Remote CI and Docker execution were not run locally.
 
-## API
+## Engineering highlights
 
-- `GET /api/products`, `GET /api/products/{id}`
-- `GET /api/orders` (latest 100, newest first)
-- `POST /api/reservations` with `{productId, quantity}`
-- `POST /api/reservations/{id}/cancel`
-- `POST /api/orders/{id}/pick`, `/shortage`, `/resolve-shortage`, `/fulfill`
-- `POST /api/pos/sales` with `{eventId, productId, quantity}`
-- `GET /health/live`, `GET /health/ready`
+```mermaid
+flowchart LR
+    UI[React dashboard] --> AUTH[Operator session and CSRF checks]
+    AUTH --> API[ASP.NET Core endpoints]
+    API --> SERVICES[Transactional services]
+    SERVICES --> DB[(PostgreSQL)]
+    WORKER[Expiry worker] --> DB
+    DB --> AUDIT[Orders, stock, audit events, replay results]
+```
 
-Reservation and order mutations require a UUID `Idempotency-Key` header. POS uses the UUID `eventId`. Quantities must be whole numbers from 1 to 100.
+Reservations and POS sales serialize competing inventory changes using product inventory row locks. Successful stock/order/audit/replay writes commit together. A retried reservation uses the same operation key; a retried sale uses the same event ID. Reusing an identifier for a different payload is rejected.
 
-## Release limits
+Shelf units and picked units are separate stock stages. Reservations hold shelf availability logically; picking physically moves the recorded quantity from shelf to picked; fulfillment consumes picked stock. The backend remains authoritative even if the dashboard is stale.
 
-This is a loopback-only local demonstration using fictional data. A single operator role is implemented. Public hosting and customer accounts are outside this local release. Use the loopback startup script for this release. Public hosting requires HTTPS and the production configuration described in the release guide. No hosting resources are provisioned.
+## Package
 
-Existing design notes in `docs/` describe broader intentions; actual source and verified tests determine implemented behavior.
+```powershell
+pwsh -File scripts/Publish.ps1 -Archive
+```
+
+Produces `artifacts/publish/`, `artifacts/publish.zip` and its SHA-256 checksum. The package includes build metadata, compiled API and dashboard. Configure database/operator secrets separately on the destination machine.
+
+## Explore
+
+| Document | Contents |
+| --- | --- |
+| [Setup](docs/setup.md) | Prerequisites, database roles, configuration and startup |
+| [Architecture](docs/architecture.md) | Actual file map, request flow, stock rules and tradeoffs |
+| [API](docs/api-contract.md) | Implemented routes, authentication, payloads and errors |
+| [Release guide](docs/local-release.md) | Verification evidence, packaging and operational limits |
+| [Demo and portfolio notes](docs/portfolio.md) | Walkthrough, interview talking points and project description |
+| [Acceptance checklist](docs/acceptance-scenarios.md) | Current release criteria and future extensions |
+
+## Scope and limits
+
+This is a **local single-operator portfolio MVP**, using fictional products. Public hosting and customer accounts are outside the selected release scope. Production API access requires HTTPS; trusted proxy and key persistence configuration must be validated on a real hosting platform.
+
+POS sales are conservatively rejected when they would consume reserved stock; the app does not model external checkout discrepancies or negative stock. Picked-order cancellation/restocking, receiving/reconciliation UI and stale-feed gating remain future extensions. Inventory counts shown in the UI are physical counts, not computed sellable availability. The latest 100 orders are shown. Uncertain operations retain their retry identifiers in tab session storage across filtering/reloads; closing that tab loses those identifiers.
+
+Stock correctness depends on all writers using the same transaction/locking rules and staff actually separating picked goods. Earlier planning documents are marked as historical where their proposed behavior differs from this release.

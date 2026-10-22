@@ -1,3 +1,5 @@
+> Historical planning/learning document. Some proposals differ from the completed local MVP. See [current architecture](architecture.md), [API contract](api-contract.md), and [release guide](local-release.md) for implemented behavior and verification.
+
 # Lesson 1: start the API
 
 Goal: build a minimal .NET 10 backend and verify process liveness. This lesson does not implement inventory, database access, security, or deployment.

@@ -1,3 +1,5 @@
+> Historical planning/learning document. Some proposals differ from the completed local MVP. See [current architecture](architecture.md), [API contract](api-contract.md), and [release guide](local-release.md) for implemented behavior and verification.
+
 # ShelfSync implementation guide
 
 This is the implementation order and release gate. It supplements the roadmap, API contract, schema, and acceptance scenarios. It does not claim implemented features or verified security. All work stays inside inventory-reservation.

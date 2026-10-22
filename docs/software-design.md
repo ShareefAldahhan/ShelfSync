@@ -1,3 +1,5 @@
+> Historical planning/learning document. Some proposals differ from the completed local MVP. See [current architecture](architecture.md), [API contract](api-contract.md), and [release guide](local-release.md) for implemented behavior and verification.
+
 # Software design and safe failures
 
 ## Architecture

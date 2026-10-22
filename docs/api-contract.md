@@ -1,32 +1,54 @@
-# API contract draft
+# Implemented API contract
 
-All endpoints are local demo endpoints. Authentication is deferred; labels such as picker/operations do not confer authorization. Bind to loopback and use fictional data.
+This describes the local single-operator MVP. The API is served on localhost:5000 by the local startup script; Vite development proxies `/api` and `/health` to it.
 
-API prefix `/api`. JSON errors: `{ "code": "inventory_unavailable", "message": "Online ordering is temporarily paused.", "requestId": "...", "retryable": true }`. Do not return SQL exceptions or connection strings.
+## Session and request security
 
-All inventory/order mutations require `Idempotency-Key` (UUID generated once per intentional action). Heartbeats are naturally repeat-safe timestamps and do not need a stored operation key. POS events additionally have a durable external `eventId`; both uniqueness rules apply. Reuse keys on retries, store payload hashes including the target resource ID and operation, and reject changed payloads with 409. Keys are retained for the lifetime of the demo dataset, not deleted when a hold expires.
+1. `GET /api/auth/session` returns `{authenticated, username, token}` and sets the antiforgery cookie.
+2. `POST /api/auth/login` accepts `{username,password}` and the `X-CSRF-TOKEN` header. Successful sign-in sets a signed HttpOnly session cookie.
+3. Fetch `/api/auth/session` again after login for a token associated with the signed-in identity.
+4. Send the session cookie on API requests and `X-CSRF-TOKEN` on writes, including logout.
+5. `POST /api/auth/logout` removes the browser session cookie.
 
-| Method/path | Request | Result |
+Business reads and writes require an authenticated Operator. Invalid/absent sessions return 401; insufficient role returns 403. Missing/invalid antiforgery tokens return 400. Login attempts are limited to five per direct client address per minute, then 429. Outside Development, plain HTTP API requests return 400; use HTTPS.
+
+## Routes
+
+| Method | Route | Body / result |
 | --- | --- | --- |
-| GET /health | None | 200 if API ready; 503 if DB unavailable |
-| GET /products | None | Product display, stock buckets, online status, server time; 503 rather than fabricated zero if DB unavailable |
-| POST /orders | productId, quantity | 201 reserved order with id, state, expiresAt; 409 insufficient stock; 503 stale/unavailable inventory |
-| GET /orders/{id} | None | Persisted state, effective state, expiry and actions; effective expiry reflected even before worker cleanup |
-| GET /requests/{key}?operation=... | None | Completed operation result or 404 not found; not found is not proof an in-flight request failed |
-| POST /orders/{id}/pick | confirmedQuantity | 200 picked order; 409 invalid state, expired, or stock requires reconciliation |
-| POST /orders/{id}/missing | reason | 200 shortage pending and quarantine; only valid from unexpired RESERVED |
-| POST /orders/{id}/cancel | reason optional | 200 canceled or restock pending; expired remains expired |
-| POST /orders/{id}/restock | confirmedQuantity, reason | 200 canceled with stock physically returned; only RESTOCK_PENDING |
-| POST /orders/{id}/fulfill | None | 200 fulfilled; only PICKED |
-| POST /pos/sales | eventId, productId, quantity | 200 committed sale plus affected orders/quarantine status |
-| POST /inventory/{id}/receive | quantity, reason | 200 stock receipt; does not silently clear quarantine |
-| POST /inventory/{id}/reconcile | observedShelfUnits, reason | 200 updated inventory and affected orders |
-| GET /operations/orders?state=... | None | Picker/exception queues |
-| GET /inventory/{id}/events | None | Ordered ledger history |
-| POST /operations/feed/heartbeat | None | Persisted server heartbeat; simulator only |
+| GET | /api/products | Array of product/inventory DTOs |
+| GET | /api/products/{id} | One product, or 404 |
+| GET | /api/orders | Latest 100 orders, newest first |
+| POST | /api/reservations | `{productId,quantity}`; 201 reservation receipt |
+| POST | /api/reservations/{id}/cancel | Cancel a live RESERVED order |
+| POST | /api/orders/{id}/pick | RESERVED to PICKED |
+| POST | /api/orders/{id}/shortage | RESERVED to SHORTAGE_PENDING |
+| POST | /api/orders/{id}/resolve-shortage | Recheck and restore eligible shortage order to RESERVED |
+| POST | /api/orders/{id}/fulfill | PICKED to FULFILLED |
+| POST | /api/pos/sales | `{eventId,productId,quantity}`; committed sale response |
+| GET | /health/live | Anonymous process liveness |
+| GET | /health/ready | Anonymous database readiness; 503 if unavailable |
 
-400 invalid input, 404 missing resource, 409 business conflict, 503 temporary dependency failure. Preserve the original status and response for completed idempotent replay. Use UTC ISO-8601 instants, database time captured after inventory lock acquisition for deadline decisions, and local formatting for display.
+Reservation/order mutation routes require one nonempty UUID `Idempotency-Key` header. POS uses its nonempty UUID `eventId` instead. Product IDs and quantities are validated; quantity must be an integer from 1 through 100.
 
-Limits: quantity integer 1-100 per action; reason 1-500 characters where required; product must exist; no multi-item orders. Demo threshold/TTL are server configuration, not browser-authoritative values.
+## DTOs
 
-Idempotency lookup is safe only in this fictional local build. Add ownership checks before any authenticated/public deployment; request keys are not authentication credentials.
+Product: `id`, `sku`, `name`, `priceCents`, `shelfUnits`, `pickedUnits`, `safetyBuffer`, `quarantined`.
+
+Order summary: `id`, `productId`, `sku`, `name`, `quantity`, `state`, `expiresAt`, `createdAt`, `updatedAt`, nullable `reason`.
+
+Reservation receipt: `orderId`, `productId`, `quantity`, `state`, `expiresAt`. New reservations last 15 minutes. Shortage resolution may issue a new expiry.
+
+Successful lifecycle responses include `orderId` and the resulting state. POS returns the committed event/product/quantity/state. Read actual service responses rather than assuming every mutation has an identical response DTO.
+
+## Retry and errors
+
+Generate a new identifier for a new intentional operation. On an uncertain network/server outcome, retry the exact payload using the same identifier. Successful replays return the stored outcome without repeating inventory movement. Reusing an identifier with a changed payload returns conflict.
+
+Business-service errors generally use `{ "error": "..." }`, with validation/conflict/not-found status as appropriate. Framework binding errors and unhandled failures may use ASP.NET error/problem responses; unauthorized responses may have no JSON body. Never treat a failed HTTP response as success merely because the server returned JSON.
+
+A stale product screen is not a stock guarantee. The service rechecks reservations, stock and state within its transaction. The frontend retains unresolved operation identifiers in tab session storage until resolution; this is not a durable cross-device request history.
+
+## Deliberate omissions
+
+There is no GET /api/inventory route: inventory fields are already returned with products. There are no receiving, reconciliation, picked-restock, customer account, registration, reset-password, or external-feed ingestion routes. RESTOCK_PENDING is a schema value, not an exposed operation.

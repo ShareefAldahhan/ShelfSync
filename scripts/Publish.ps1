@@ -12,6 +12,7 @@ try {
     if ($LASTEXITCODE) { throw 'Backend publish failed.' }
     New-Item -ItemType Directory -Force "$Output/wwwroot" | Out-Null
     Copy-Item frontend/dist/* "$Output/wwwroot" -Recurse -Force
+    Copy-Item docs/package-readme.md "$Output/README.md" -Force
     $revision = git rev-parse --short HEAD
     $dirty = [bool](git status --porcelain)
     @{ revision=$revision; sourceHasLocalChanges=$dirty; builtAtUtc=[DateTime]::UtcNow.ToString('o'); framework='net10.0' } | ConvertTo-Json | Set-Content "$Output/release.json"

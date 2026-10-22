@@ -111,3 +111,11 @@ pwsh -File scripts/Publish.ps1 -Archive
 Outputs: `artifacts/publish/`, `artifacts/publish.zip`, and `artifacts/publish.zip.sha256`. `release.json` records source revision, local-change status and UTC build time. The ZIP includes the compiled dashboard and backend, not database passwords or operator credentials. Install .NET 10 runtime and configure the database/operator secrets on the destination machine. For the original machine use `scripts/Set-Operator.ps1` once, then `scripts/Start-Local.ps1`.
 
 The supplied Dockerfile and CI workflow remain available for future hosting; Docker execution and remote CI were not run locally. Public HTTPS/proxy configuration remains deferred because public hosting is outside the selected scope. Phase 10 portfolio polish is separate.
+
+## Phase 10 — documentation and portfolio handoff
+
+The README now presents the implemented local MVP with a verified dashboard screenshot, setup/startup commands, architecture overview, verification evidence and explicit scope. Current setup, architecture, API and acceptance documents replace contradictory draft claims. Older design/learning documents remain preserved and clearly marked historical.
+
+`docs/portfolio.md` supplies a three-minute demo script, project description, interview prompts and honest claim boundaries. `docs/package-readme.md` is copied into the distributable so an extracted package has its own startup instructions. Local documentation links and screenshot targets were checked. A recorded video, public hosting, remote CI execution and the later comprehensive teaching course are not claimed as delivered.
+
+The selected local functional MVP and its release/documentation work are complete. Source changes are committed locally. Publishing/pushing to an external destination remains a separate action.
