@@ -1,0 +1,9 @@
+.git
+**/node_modules
+**/dist
+**/bin
+**/obj
+.env*
+**/secrets.json
+**/appsettings.Development.json
+artifacts

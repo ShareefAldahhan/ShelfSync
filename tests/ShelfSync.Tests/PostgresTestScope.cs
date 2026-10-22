@@ -96,11 +96,11 @@ internal sealed class PostgresTestScope : IAsyncDisposable
             throw new InvalidOperationException("This test already owns a failure trigger.");
 
         // Identifiers and UUID literals are generated locally, never taken from input.
-        failureObjectName = $"test_reserve_failure_{Guid.NewGuid():N}";
+        var objectName = $"test_reserve_failure_{Guid.NewGuid():N}";
         await using var connection = await Db.OpenConnectionAsync();
         await using var transaction = await connection.BeginTransactionAsync();
         var sql = $$"""
-            CREATE FUNCTION {{failureObjectName}}() RETURNS trigger LANGUAGE plpgsql AS $body$
+            CREATE FUNCTION {{objectName}}() RETURNS trigger LANGUAGE plpgsql AS $body$
             BEGIN
                 IF NOT EXISTS (SELECT 1 FROM orders WHERE product_id = '{{ProductId:D}}'::uuid)
                    OR NOT EXISTS (SELECT 1 FROM inventory_events
@@ -111,15 +111,16 @@ internal sealed class PostgresTestScope : IAsyncDisposable
             END;
             $body$;
 
-            CREATE TRIGGER {{failureObjectName}}
+            CREATE TRIGGER {{objectName}}
             BEFORE UPDATE ON operation_requests
             FOR EACH ROW
             WHEN (NEW.operation = 'RESERVE' AND NEW.request_key = '{{requestKey:D}}'::uuid)
-            EXECUTE FUNCTION {{failureObjectName}}();
+            EXECUTE FUNCTION {{objectName}}();
             """;
         await using var command = new NpgsqlCommand(sql, connection, transaction);
         await command.ExecuteNonQueryAsync();
         await transaction.CommitAsync();
+        failureObjectName = objectName;
     }
 
     public async ValueTask DisposeAsync()

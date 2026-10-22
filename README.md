@@ -1,31 +1,70 @@
-# ShelfSync: inventory reservations and fulfillment
+# ShelfSync
 
-Design package for a seven-day, local portfolio release. This folder currently contains the roadmap, architecture, API contract, database schema, and acceptance scenarios. The application is not implemented yet.
+A local portfolio application for inventory reservations, fulfillment, and store sales, using ASP.NET Core 10, PostgreSQL, Npgsql, React, TypeScript, and Vite.
 
-## Goal
+See [the local release guide](docs/local-release.md) for one-command startup, operator setup, verification, security details and deployment instructions.
 
-Demonstrate that simultaneous online orders cannot reserve the same unit, that recorded store sales can invalidate unpicked reservations, and that shortages and outages produce honest, recoverable outcomes.
+## Implemented
 
-## Start here
+- Operator sign-in, protected API access, CSRF protection, and login rate limiting.
+- Product dashboard with shelf, picked, buffer and quarantine visibility.
+- Reservations with quantity validation, expiration, and idempotency.
+- Latest 100 orders, cancellation, picking, shortage reporting/resolution, and fulfillment.
+- POS sales with event-based deduplication.
+- Transactional stock updates, row locks, audit events, and background expiry.
+- UI errors, pending states, refresh, and safe retries for uncertain operations.
 
-1. Read `docs/roadmap.md` for the daily work plan and required tools.
-2. Read `docs/software-design.md` for stock definitions and transaction rules.
-3. Use `docs/api-contract.md` when implementing the backend and UI.
-4. Use `docs/acceptance-scenarios.md` as the release checklist.
-5. Use `database/schema.sql` as the initial PostgreSQL schema. It has not been applied or validated against PostgreSQL yet; it is not a substitute for implementing the transaction rules.
+Shelf counts are physical inventory, not a promise of available stock. The backend rechecks active reservations under locks on every mutation.
 
-Stack: React/TypeScript, ASP.NET Core on .NET 10, PostgreSQL, Npgsql, xUnit, Playwright, GitHub Actions. Prefer direct SQL through Npgsql for the small number of stock transactions, making the locking behavior easy to inspect. Do not mix multiple write paths for stock updates.
+## Run locally (Windows PowerShell)
 
-Free local development. No paid hosting, payment provider, AI API, custom domain, or Walmart integration is required. One process hosts the API and expiry worker; production builds can serve the React assets through the backend.
+Prerequisites: .NET 10 SDK, Node.js compatible with Vite 8, PostgreSQL, and a development database provisioned using `database/` scripts. Review scripts before applying them; do not recreate an existing database.
 
-## Scope
+Run `pwsh -File scripts/Set-Operator.ps1` to configure operator sign-in. Configure `ConnectionStrings:ShelfSync` using .NET user secrets for `backend/ShelfSync.Api`, or the `ConnectionStrings__ShelfSync` environment variable. Keep passwords out of source control and command history.
 
-One fictional store, 6-10 seeded products, integer quantities, single-item orders, shared inventory per SKU, receipt/sale/count events, reservations, picking, cancellation, collection/dispatch confirmation, an event history, and controlled failure exercises.
+From the repository directory:
 
-Customer, picker, and operations are separate screens, not an authentication system. Week-one build runs locally on loopback with fictional data. Do not expose it publicly as a secured application. Authentication and authorization must be added and tested before a public write-enabled deployment.
+```powershell
+dotnet run --project backend/ShelfSync.Api --urls http://localhost:5000
+```
 
-An associate scan confirms picking and represents physical separation into a fulfillment area. Software cannot guarantee that physical separation actually happened or see a shopper's cart before a checkout event.
+In another terminal:
 
-## Completion standard
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
 
-The three-bag scenario, final-unit concurrency, idempotent retry, worker restart, expiry/pick race, quarantine/reconciliation, and picked-item restocking must pass against PostgreSQL. A reviewer gets reproducible instructions, a short video, and clearly identified limitations.
+Open http://localhost:5173. The Vite proxy sends `/api` and `/health` to the API on port 5000.
+
+## Verification
+
+```powershell
+npm --prefix frontend run build
+npm --prefix frontend run lint
+dotnet build tests/ShelfSync.Tests
+dotnet test tests/ShelfSync.Tests
+```
+
+Integration tests require `SHELFSYNC_TEST_CONNECTION` configured securely in the current process. The test helper refuses any database name except `shelfsync_test`. Provision that separate database with the current schema and suitable test-role permissions before testing.
+
+Manual walkthrough: reserve one unit, find the order, pick and fulfill it. Repeat with cancellation and shortage/resolution. Record a POS sale. Refresh to inspect stock. A retry after an uncertain response reuses its original key/event; keep the page open and resolve the operation before closing or reloading. Pending retry state is held in memory, not persisted across reloads.
+
+## API
+
+- `GET /api/products`, `GET /api/products/{id}`
+- `GET /api/orders` (latest 100, newest first)
+- `POST /api/reservations` with `{productId, quantity}`
+- `POST /api/reservations/{id}/cancel`
+- `POST /api/orders/{id}/pick`, `/shortage`, `/resolve-shortage`, `/fulfill`
+- `POST /api/pos/sales` with `{eventId, productId, quantity}`
+- `GET /health/live`, `GET /health/ready`
+
+Reservation and order mutations require a UUID `Idempotency-Key` header. POS uses the UUID `eventId`. Quantities must be whole numbers from 1 to 100.
+
+## Release limits
+
+This is a loopback-only local demonstration using fictional data. A single operator role is implemented. Public hosting, customer accounts, and browser automation are outside this local release. Use the loopback startup script for this release. Public hosting requires HTTPS and the production configuration described in the release guide. No hosting resources are provisioned.
+
+Existing design notes in `docs/` describe broader intentions; actual source and verified tests determine implemented behavior.

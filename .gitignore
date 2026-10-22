@@ -12,3 +12,5 @@ node_modules/
 dist/
 coverage/
 **/serviceDependencies.local.json
+
+artifacts/

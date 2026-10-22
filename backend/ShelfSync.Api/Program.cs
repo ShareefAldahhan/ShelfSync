@@ -1,3 +1,4 @@
+using ShelfSync.Api.Security;
 
 using Npgsql;
 using ShelfSync.Api.Repositories;
@@ -14,6 +15,8 @@ var dataSource = NpgsqlDataSource.Create(connectionString);
 
 builder.Services.AddSingleton(dataSource);
 builder.Services.AddScoped<ProductRepository>();
+builder.Services.AddScoped<OrderRepository>();
+builder.Services.AddScoped<ReservationCancellationService>();
 builder.Services.AddScoped<ReservationService>();
 builder.Services.AddSingleton<ReservationExpirationService>();
 builder.Services.AddHostedService<ReservationExpirationWorker>();
@@ -23,7 +26,13 @@ builder.Services.AddScoped<OrderShortageResolutionService>();
 builder.Services.AddScoped<OrderFulfillmentService>();
 builder.Services.AddScoped<PosSaleService>();
 
+builder.AddOperatorSecurity();
+builder.Services.AddProblemDetails();
 var app = builder.Build();
+app.UseExceptionHandler();
+app.UseOperatorSecurity();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 // Liveness: checks whether the API process can respond.
 
@@ -282,4 +291,8 @@ app.MapGet("/health/ready", async (NpgsqlDataSource db) =>
 	}
 });
 
+app.MapGet("/api/orders", async (OrderRepository repository, CancellationToken ct) => Results.Ok(await repository.GetRecentAsync(ct)));
+
+app.MapFallbackToFile("{*path:nonfile}", "index.html");
 app.Run();
+public partial class Program { }
