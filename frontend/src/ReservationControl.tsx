@@ -1,3 +1,4 @@
+import { usePendingOperation } from './usePendingOperation'
 import { secureFetch } from './session'
 import { useRef, useState } from 'react'
 
@@ -5,9 +6,9 @@ type Operation = { key: string; quantity: number }
 type Receipt = { orderId: string; state: string; expiresAt: string }
 
 export default function ReservationControl({ productId, name, changed }: { productId: string; name: string; changed: () => void }) {
-  const [quantity, setQuantity] = useState('1')
   const [pending, setPending] = useState(false)
-  const [uncertain, setUncertain] = useState<Operation | null>(null)
+  const [uncertain, setUncertain] = usePendingOperation<Operation>(`reservation:${productId}`)
+  const [quantity, setQuantity] = useState(() => String(uncertain?.quantity ?? 1))
   const [message, setMessage] = useState('')
   const [receipt, setReceipt] = useState<Receipt | null>(null)
   const busy = useRef(false)
@@ -20,6 +21,7 @@ export default function ReservationControl({ productId, name, changed }: { produ
       return
     }
     const operation = uncertain ?? { key: crypto.randomUUID(), quantity: count }
+    setUncertain(operation)
     busy.current = true
     setPending(true)
     setReceipt(null)
@@ -46,7 +48,7 @@ export default function ReservationControl({ productId, name, changed }: { produ
       changed()
     } catch {
       setUncertain(operation)
-      setMessage('Unable to confirm the result. Retry safely with the same request. Keep this page open until resolved.')
+      setMessage('Unable to confirm the result. Retry safely with the same request. Your request is saved in this tab until resolved.')
     } finally {
       busy.current = false
       setPending(false)

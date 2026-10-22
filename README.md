@@ -65,6 +65,6 @@ Reservation and order mutations require a UUID `Idempotency-Key` header. POS use
 
 ## Release limits
 
-This is a loopback-only local demonstration using fictional data. A single operator role is implemented. Public hosting, customer accounts, and browser automation are outside this local release. Use the loopback startup script for this release. Public hosting requires HTTPS and the production configuration described in the release guide. No hosting resources are provisioned.
+This is a loopback-only local demonstration using fictional data. A single operator role is implemented. Public hosting and customer accounts are outside this local release. Use the loopback startup script for this release. Public hosting requires HTTPS and the production configuration described in the release guide. No hosting resources are provisioned.
 
 Existing design notes in `docs/` describe broader intentions; actual source and verified tests determine implemented behavior.

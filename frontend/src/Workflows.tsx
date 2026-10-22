@@ -1,10 +1,11 @@
+import { usePendingOperation } from './usePendingOperation'
 import { useEffect, useRef, useState } from 'react'
 import { mutate } from './api'
 import type { Operation, Order, Product } from './api'
 
 export function OrderActions({ order, changed }: { order: Order; changed: () => void }) {
   const [pending, setPending] = useState(false)
-  const [retry, setRetry] = useState<Operation | null>(null)
+  const [retry, setRetry] = usePendingOperation<Operation>(`order:${order.id}`)
   const [message, setMessage] = useState('')
   const busy = useRef(false)
   const [now, setNow] = useState(() => Date.now())
@@ -14,6 +15,7 @@ export function OrderActions({ order, changed }: { order: Order; changed: () => 
   async function submit(action: string) {
     if (busy.current) return
     const op = retry ?? { key: crypto.randomUUID(), url: action === 'cancel' ? `/api/reservations/${order.id}/cancel` : `/api/orders/${order.id}/${action}` }
+    setRetry(op)
     busy.current = true; setPending(true)
     try {
       const result = await mutate(op)
@@ -28,9 +30,12 @@ export function OrderActions({ order, changed }: { order: Order; changed: () => 
 }
 
 export function PosForm({ products, changed }: { products: Product[]; changed: () => void }) {
-  const [productId, setProductId] = useState('')
-  const [quantity, setQuantity] = useState('1')
-  const [retry, setRetry] = useState<Operation | null>(null)
+
+
+  const [retry, setRetry] = usePendingOperation<Operation>('pos-sale')
+  const saved = retry?.body as { productId?: string; quantity?: number } | undefined
+  const [productId, setProductId] = useState(() => saved?.productId ?? '')
+  const [quantity, setQuantity] = useState(() => String(saved?.quantity ?? 1))
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState('')
   const busy = useRef(false)
@@ -40,6 +45,7 @@ export function PosForm({ products, changed }: { products: Product[]; changed: (
     if (!retry && (!productId || !Number.isInteger(count) || count < 1 || count > 100)) { setMessage('Choose a product and a whole quantity from 1 to 100.'); return }
     const key = retry?.key ?? crypto.randomUUID()
     const op = retry ?? { key, url: '/api/pos/sales', body: { eventId: key, productId, quantity: count } }
+    setRetry(op)
     busy.current = true; setPending(true)
     try {
       const result = await mutate(op)
