@@ -87,3 +87,27 @@ Implemented and verified: credential hashing; four-hour signed HttpOnly/SameSite
 Verification on 22 October 2026: backend/test build passed without warnings; frontend build and lint passed; expanded HTTP security checks passed; production HTTP checks passed. Temporary credential changes used only child-process environment variables and did not change saved operator credentials or inventory.
 
 HTTPS hosting, trusted proxy configuration and data-protection key persistence must be configured and verified on the actual hosting platform in Phase 9. Do not forge forwarded headers to bypass HTTPS enforcement. Local start remains loopback-only Development. Role separation, customer accounts, MFA, distributed login throttling and server-side per-session revocation are future extensions. Logout removes the current browser's cookie; credential rotation revokes all earlier cookies, including copies.
+
+## Phase 9 — verified local deployment
+
+Phase 9 is complete for the explicitly selected local deployment scope. No public host or paid resources were provisioned.
+
+Run the repeatable release gate from the repository root:
+
+```powershell
+pwsh -File scripts/Verify-Release.ps1
+```
+
+This builds the release, initializes a separate password-protected PostgreSQL 18 cluster under ignored `artifacts/verification-*`, binds it only to 127.0.0.1:55439, creates `shelfsync_test` with its own table-owning test role, applies the schema, runs all 42 integration tests, exercises the published lifecycle and POS routes with a fictional fixture, runs security checks and production HTTP rejection, and runs frontend lint. It stops that cluster and restores connection environment variables in `finally`. Your existing PostgreSQL service, databases, and permissions are not changed. Bootstrap password files are removed after initialization. Stopped test data/logs remain under ignored artifacts for diagnostics. Use `-PostgresBin` or `-Port` for a different local PostgreSQL installation or unused port; use `-SkipPublish` only when a current publish package already exists.
+
+Verified on 22 October 2026: **42 passed, zero failed, zero skipped**, plus published reservation/replay/cancel, pick/fulfill, shortage/resolve/cancel, POS/replay, final stock invariants, wrong-password rejection, tampered-session rejection, CSRF, login throttling, logout, credential-rotation invalidation, production HTTP rejection and lint. This resolves the earlier 41/42 local-account ownership limitation without granting extra application permissions.
+
+Create a distributable package:
+
+```powershell
+pwsh -File scripts/Publish.ps1 -Archive
+```
+
+Outputs: `artifacts/publish/`, `artifacts/publish.zip`, and `artifacts/publish.zip.sha256`. `release.json` records source revision, local-change status and UTC build time. The ZIP includes the compiled dashboard and backend, not database passwords or operator credentials. Install .NET 10 runtime and configure the database/operator secrets on the destination machine. For the original machine use `scripts/Set-Operator.ps1` once, then `scripts/Start-Local.ps1`.
+
+The supplied Dockerfile and CI workflow remain available for future hosting; Docker execution and remote CI were not run locally. Public HTTPS/proxy configuration remains deferred because public hosting is outside the selected scope. Phase 10 portfolio polish is separate.

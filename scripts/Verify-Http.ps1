@@ -3,6 +3,7 @@ param([switch]$Published, [switch]$ProductionHttpChecks)
 $ErrorActionPreference = 'Stop'
 Push-Location (Join-Path $PSScriptRoot '..')
 $server = $null
+$priorConnection = $env:ConnectionStrings__ShelfSync
 try {
     $password = [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
     $salt = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(16)
@@ -13,7 +14,7 @@ try {
     $env:Operator__PasswordHash = [Convert]::ToBase64String($bytes)
     $env:Operator__Username = 'smoke-operator'
     $env:ASPNETCORE_ENVIRONMENT = if ($ProductionHttpChecks) { 'Production' } else { 'Development' }
-    if ($ProductionHttpChecks) {
+    if ($ProductionHttpChecks -and !$env:ConnectionStrings__ShelfSync) {
         # Production intentionally does not load development user secrets.
         $settings=Get-Content (Join-Path $env:APPDATA 'Microsoft/UserSecrets/f1743222-090c-4111-8a6c-12e064007dba/secrets.json') -Raw | ConvertFrom-Json
         $env:ConnectionStrings__ShelfSync=$settings.ConnectionStrings.ShelfSync
@@ -121,6 +122,6 @@ try {
 } finally {
     if ($server -and !$server.HasExited) { Stop-Process -Id $server.Id -Force }
     $env:Operator__PasswordHash=$null;$env:Operator__Username=$null;$env:ASPNETCORE_ENVIRONMENT=$null
-    if ($ProductionHttpChecks) { $env:ConnectionStrings__ShelfSync=$null }
+    $env:ConnectionStrings__ShelfSync=$priorConnection
     Pop-Location
 }

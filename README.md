@@ -38,6 +38,10 @@ npm run dev
 
 Open http://localhost:5173. The Vite proxy sends `/api` and `/health` to the API on port 5000.
 
+## Full local release verification
+
+Run `pwsh -File scripts/Verify-Release.ps1` to build and verify against an isolated PostgreSQL instance without changing your existing databases. All 42 integration tests and published workflow/security checks passed. Create a ZIP with `pwsh -File scripts/Publish.ps1 -Archive`.
+
 ## Verification
 
 ```powershell
