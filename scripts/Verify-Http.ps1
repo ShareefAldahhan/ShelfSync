@@ -1,4 +1,4 @@
-param([switch]$Published)
+param([switch]$Published, [switch]$ProductionHttpChecks)
 # Runs the real API with temporary credentials. Requires the normal local DB user secret.
 $ErrorActionPreference = 'Stop'
 Push-Location (Join-Path $PSScriptRoot '..')
@@ -12,13 +12,26 @@ try {
     $salt.CopyTo($bytes,13);$subkey.CopyTo($bytes,29)
     $env:Operator__PasswordHash = [Convert]::ToBase64String($bytes)
     $env:Operator__Username = 'smoke-operator'
-    $env:ASPNETCORE_ENVIRONMENT = 'Development'
+    $env:ASPNETCORE_ENVIRONMENT = if ($ProductionHttpChecks) { 'Production' } else { 'Development' }
+    if ($ProductionHttpChecks) {
+        # Production intentionally does not load development user secrets.
+        $settings=Get-Content (Join-Path $env:APPDATA 'Microsoft/UserSecrets/f1743222-090c-4111-8a6c-12e064007dba/secrets.json') -Raw | ConvertFrom-Json
+        $env:ConnectionStrings__ShelfSync=$settings.ConnectionStrings.ShelfSync
+    }
     New-Item -ItemType Directory -Force artifacts | Out-Null
-    $arguments = if ($Published) { @('artifacts/publish/ShelfSync.Api.dll','--contentRoot', ('"' + (Join-Path (Get-Location) 'artifacts/publish') + '"'),'--urls','http://localhost:5088') } else { @('run','--no-build','--no-launch-profile','--project','backend/ShelfSync.Api','--urls','http://localhost:5088') }
+    $arguments = if ($Published) { @('artifacts/publish/ShelfSync.Api.dll','--contentRoot', ('"' + (Join-Path (Get-Location) 'artifacts/publish') + '"'),'--urls','http://localhost:5088') } else { @('backend/ShelfSync.Api/bin/Debug/net10.0/ShelfSync.Api.dll','--contentRoot', ('"' + (Join-Path (Get-Location) 'backend/ShelfSync.Api') + '"'),'--urls','http://localhost:5088') }
     $server = Start-Process dotnet -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput artifacts/http-stdout.log -RedirectStandardError artifacts/http-stderr.log
     $base='http://localhost:5088'
     for ($i=0; $i -lt 30; $i++) {
         try { $null=Invoke-RestMethod "$base/health/live"; break } catch { Start-Sleep -Milliseconds 500 }
+    }
+    if ($ProductionHttpChecks) {
+        foreach ($path in @('/api/auth/session','/api/products')) {
+            $blocked=Invoke-WebRequest "$base$path" -SkipHttpErrorCheck
+            if ($blocked.StatusCode -ne 400 -or $blocked.Content -notmatch 'HTTPS is required') { throw 'Production HTTP was not rejected.' }
+        }
+        Write-Output 'PASS: production refuses plain HTTP for session and inventory API access.'
+        return
     }
     if ($Published) {
         $page=Invoke-WebRequest $base
@@ -27,12 +40,25 @@ try {
     $r=Invoke-WebRequest "$base/api/products" -SkipHttpErrorCheck
     if ($r.StatusCode -ne 401) { throw 'Anonymous API access was not denied.' }
     $s=Invoke-RestMethod "$base/api/auth/session" -SessionVariable browser
+    $wrong=@{username='smoke-operator';password='wrong-password'}|ConvertTo-Json
+    $denied=Invoke-WebRequest "$base/api/auth/login" -Method Post -WebSession $browser -Headers @{'X-CSRF-TOKEN'=$s.token} -ContentType application/json -Body $wrong -SkipHttpErrorCheck
+    if ($denied.StatusCode -ne 401) { throw 'Wrong password was not rejected.' }
     $login=@{username='smoke-operator';password=$password}|ConvertTo-Json
+    $null=$browser.Headers.Remove('X-CSRF-TOKEN')
     $r=Invoke-WebRequest "$base/api/auth/login" -Method Post -WebSession $browser -ContentType application/json -Body $login -SkipHttpErrorCheck
     if ($r.StatusCode -ne 400) { throw 'Missing CSRF token was not rejected.' }
     $null=Invoke-RestMethod "$base/api/auth/login" -Method Post -WebSession $browser -Headers @{'X-CSRF-TOKEN'=$s.token} -ContentType application/json -Body $login
     $s=Invoke-RestMethod "$base/api/auth/session" -WebSession $browser
     if (!$s.authenticated) { throw 'Authentication did not persist.' }
+    if ($s.username -ne 'smoke-operator') { throw 'Authenticated identity was not returned correctly.' }
+    $cookie=$browser.Cookies.GetCookies([uri]$base) | Where-Object Name -eq 'ShelfSync.Session'
+    if (!$cookie.HttpOnly) { throw 'Session cookie is not HttpOnly.' }
+    $oldSession=[Microsoft.PowerShell.Commands.WebRequestSession]::new()
+    $oldSession.Cookies.Add([uri]$base,[System.Net.Cookie]::new('ShelfSync.Session',$cookie.Value,'/'))
+    $tampered=[Microsoft.PowerShell.Commands.WebRequestSession]::new()
+    $tampered.Cookies.Add([uri]$base,[System.Net.Cookie]::new('ShelfSync.Session','invalid-session','/'))
+    $denied=Invoke-WebRequest "$base/api/products" -WebSession $tampered -SkipHttpErrorCheck
+    if ($denied.StatusCode -ne 401) { throw 'Tampered cookie was not rejected.' }
     $products=Invoke-RestMethod "$base/api/products" -WebSession $browser
     $orders=Invoke-RestMethod "$base/api/orders" -WebSession $browser
     if ($env:SHELFSYNC_SMOKE_PRODUCT) {
@@ -72,9 +98,29 @@ try {
     $null=Invoke-RestMethod "$base/api/auth/logout" -Method Post -WebSession $browser -Headers @{'X-CSRF-TOKEN'=$s.token}
     $r=Invoke-WebRequest "$base/api/orders" -WebSession $browser -SkipHttpErrorCheck
     if ($r.StatusCode -ne 401) { throw 'Logout did not revoke browser access.' }
+    $s=Invoke-RestMethod "$base/api/auth/session" -WebSession $browser
+    for ($attempt=0; $attempt -lt 6; $attempt++) {
+        $denied=Invoke-WebRequest "$base/api/auth/login" -Method Post -WebSession $browser -Headers @{'X-CSRF-TOKEN'=$s.token} -ContentType application/json -Body $wrong -SkipHttpErrorCheck
+        if ($denied.StatusCode -eq 429) { break }
+    }
+    if ($denied.StatusCode -ne 429) { throw 'Repeated login attempts were not rate limited.' }
+    Stop-Process -Id $server.Id -Force
+    $server.WaitForExit()
+    # A changed, still well-formed credential hash must revoke previously signed cookies.
+    $bytes[60]=$bytes[60] -bxor 1
+    $env:Operator__PasswordHash=[Convert]::ToBase64String($bytes)
+    $server=Start-Process dotnet -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput artifacts/http-rotated-stdout.log -RedirectStandardError artifacts/http-rotated-stderr.log
+    for ($i=0; $i -lt 30; $i++) {
+        try { $null=Invoke-RestMethod "$base/health/live"; break } catch { Start-Sleep -Milliseconds 500 }
+    }
+    $denied=Invoke-WebRequest "$base/api/products" -WebSession $oldSession -SkipHttpErrorCheck
+    if ($denied.StatusCode -ne 401) { throw 'Credential change did not revoke the old session.' }
+    Write-Output 'PASS: old signed session rejected after operator credential rotation.'
+    Write-Output 'PASS: wrong password, authenticated identity, HttpOnly cookie, tampered cookie rejection, login rate limiting.'
     Write-Output "PASS: anonymous denial, CSRF denial, login, session, catalog ($($products.Count)), orders ($($orders.Count)), idempotency validation, logout."
 } finally {
     if ($server -and !$server.HasExited) { Stop-Process -Id $server.Id -Force }
     $env:Operator__PasswordHash=$null;$env:Operator__Username=$null;$env:ASPNETCORE_ENVIRONMENT=$null
+    if ($ProductionHttpChecks) { $env:ConnectionStrings__ShelfSync=$null }
     Pop-Location
 }

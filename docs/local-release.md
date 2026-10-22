@@ -28,6 +28,7 @@ npm --prefix frontend run build
 npm --prefix frontend run lint
 dotnet build tests/ShelfSync.Tests
 pwsh -File scripts/Verify-Http.ps1
+pwsh -File scripts/Verify-Http.ps1 -ProductionHttpChecks
 dotnet test tests/ShelfSync.Tests
 ```
 
@@ -39,7 +40,7 @@ Database integration tests require `SHELFSYNC_TEST_CONNECTION` to point to **she
 
 All business API reads and writes require a signed operator session. Passwords are checked using ASP.NET Identity password hashing. Session cookies are HttpOnly, SameSite Strict, last four hours, and require Secure transport outside Development. Mutating requests require ASP.NET antiforgery tokens, including login/logout. Login allows five attempts per client address per minute. Health endpoints are intentionally anonymous. The browser receives no password hash or database credentials.
 
-This MVP has one trusted operator role for the fictional store; it does not implement customer accounts, registration, password reset, MFA, or per-user order ownership. Changing the configured password does not invalidate already issued session cookies; stop the server and rotate the persisted data-protection key ring if immediate revocation is needed. Never expose the Development server on a public interface.
+This MVP has one trusted operator role for the fictional store; it does not implement customer accounts, registration, password reset, MFA, or per-user order ownership. Each authenticated request revalidates the operator username, role, and credential fingerprint. Changing the configured password hash or username invalidates previous sessions on the next request after the running server loads the new configuration (restart after changing environment variables or local user secrets). Never expose the Development server on a public interface.
 
 Implementation references: [cookie authentication](https://learn.microsoft.com/aspnet/core/security/authentication/cookie?view=aspnetcore-10.0), [antiforgery](https://learn.microsoft.com/aspnet/core/security/anti-request-forgery?view=aspnetcore-10.0), [rate limiting](https://learn.microsoft.com/aspnet/core/performance/rate-limit?view=aspnetcore-10.0).
 
@@ -75,3 +76,14 @@ A demo reservation for SS-002 was created and cancelled during this check; its a
 Phase 7 refinements: order search/state filters; effective EXPIRED display before the background sweep; expired holds excluded from the active summary; pending reservation, order-action and POS operation identifiers saved in tab session storage before sending, preserving retries across filtering and reloads. Browser evidence is available locally at `artifacts/phase7-orders.png` (ignored by Git).
 
 POS stock mutation and remaining lifecycle actions were already verified against the published HTTP API at the previous checkpoint. Full visual automation of each lifecycle branch and deliberate browser network-disconnect testing have not been completed; do not interpret this checkpoint as that coverage.
+
+
+## Phase 8 — single-operator security checkpoint
+
+The local MVP uses one trusted Operator account; all business API routes require authentication and the Operator role. This is the agreed portfolio scope, not a multi-user customer account system.
+
+Implemented and verified: credential hashing; four-hour signed HttpOnly/SameSite session cookie; wrong-password denial; tampered-cookie denial; antiforgery on writes including login/logout; five login attempts per minute per direct client address; explicit operator-role checks; credential fingerprint revalidation on each authenticated request; old session denial after credential changes; production API rejection over plain HTTP; secure antiforgery cookies outside Development; no credential configuration values included in validation error messages. Startup checks the configured hash format before accepting traffic.
+
+Verification on 22 October 2026: backend/test build passed without warnings; frontend build and lint passed; expanded HTTP security checks passed; production HTTP checks passed. Temporary credential changes used only child-process environment variables and did not change saved operator credentials or inventory.
+
+HTTPS hosting, trusted proxy configuration and data-protection key persistence must be configured and verified on the actual hosting platform in Phase 9. Do not forge forwarded headers to bypass HTTPS enforcement. Local start remains loopback-only Development. Role separation, customer accounts, MFA, distributed login throttling and server-side per-session revocation are future extensions. Logout removes the current browser's cookie; credential rotation revokes all earlier cookies, including copies.
