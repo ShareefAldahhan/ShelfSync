@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Dashboard from './Dashboard'
 import { secureFetch, session } from './session'
 import './App.css'
+import './Storefront.css'
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null)
@@ -31,6 +32,6 @@ export default function App() {
     finally { setPending(false) }
   }
   if (authenticated === null) return <p className="empty-state">Connecting…</p>
-  if (authenticated) return <><div className="session-bar"><span>Signed in as operator</span><button disabled={pending} onClick={() => void logout()}>Sign out</button>{error && <span role="alert">{error}</span>}</div><Dashboard /></>
-  return <main className="login-shell"><form className="table-section pos-form" onSubmit={event => void login(event)}><h1>ShelfSync</h1><p>Sign in to manage your store inventory.</p><label>Username<input autoComplete="username" required value={username} onChange={e => setUsername(e.target.value)} /></label><label>Password<input autoComplete="current-password" type="password" required maxLength={1024} value={password} onChange={e => setPassword(e.target.value)} /></label><button disabled={pending}>{pending ? 'Signing in…' : 'Sign in'}</button>{error && <p role="alert">{error}</p>}</form></main>
+  if (authenticated) return <><div className="session-bar"><span>Your local market · Operator account</span><button disabled={pending} onClick={() => void logout()}>Sign out</button>{error && <span role="alert">{error}</span>}</div><Dashboard /></>
+  return <main className="login-shell"><form className="table-section pos-form" onSubmit={event => void login(event)}><h1>ShelfSync</h1><p>Your neighborhood favorites, all in one place. Sign in to browse and reserve.</p><label>Username<input autoComplete="username" required value={username} onChange={e => setUsername(e.target.value)} /></label><label>Password<input autoComplete="current-password" type="password" required maxLength={1024} value={password} onChange={e => setPassword(e.target.value)} /></label><button disabled={pending}>{pending ? 'Signing in…' : 'Sign in'}</button>{error && <p role="alert">{error}</p>}</form></main>
 }

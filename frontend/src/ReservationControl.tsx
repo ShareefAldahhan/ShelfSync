@@ -5,7 +5,7 @@ import { useRef, useState } from 'react'
 type Operation = { key: string; quantity: number }
 type Receipt = { orderId: string; state: string; expiresAt: string }
 
-export default function ReservationControl({ productId, name, changed }: { productId: string; name: string; changed: () => void }) {
+export default function ReservationControl({ productId, name, changed, unavailable = false }: { productId: string; name: string; changed: () => void; unavailable?: boolean }) {
   const [pending, setPending] = useState(false)
   const [uncertain, setUncertain] = usePendingOperation<Operation>(`reservation:${productId}`)
   const [quantity, setQuantity] = useState(() => String(uncertain?.quantity ?? 1))
@@ -58,9 +58,9 @@ export default function ReservationControl({ productId, name, changed }: { produ
   return <div className="reservation-control">
     <div className="reservation-inputs">
       <input aria-label={`Quantity for ${name}`} type="number" min="1" max="100" step="1" value={quantity}
-        disabled={pending || uncertain !== null} onChange={event => setQuantity(event.target.value)} />
-      <button className="refresh-button" disabled={pending} onClick={() => void reserve()}>
-        {pending ? 'Reserving…' : uncertain ? 'Retry reservation' : 'Reserve'}
+        disabled={pending || uncertain !== null || unavailable} onChange={event => setQuantity(event.target.value)} />
+      <button className="refresh-button" disabled={pending || (unavailable && !uncertain)} onClick={() => void reserve()}>
+        {pending ? 'Reserving…' : uncertain ? 'Retry reservation' : unavailable ? 'Unavailable' : 'Reserve for pickup'}
       </button>
     </div>
     <div role="status" aria-live="polite">

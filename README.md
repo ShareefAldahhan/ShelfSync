@@ -6,7 +6,7 @@ ShelfSync models one fictional store where online reservations and point-of-sale
 
 Built with **ASP.NET Core 10 · PostgreSQL 18 · Npgsql · React · TypeScript · Vite**.
 
-![Orders dashboard with a verified cancelled reservation](docs/images/orders.png)
+![ShelfSync Market storefront](docs/images/storefront.png)
 
 ## What works
 
