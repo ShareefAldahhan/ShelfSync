@@ -61,6 +61,11 @@ try {
     $denied=Invoke-WebRequest "$base/api/products" -WebSession $tampered -SkipHttpErrorCheck
     if ($denied.StatusCode -ne 401) { throw 'Tampered cookie was not rejected.' }
     $products=Invoke-RestMethod "$base/api/products" -WebSession $browser
+    if ($products.Count -gt 0) {
+        $item=Invoke-RestMethod "$base/api/products/$($products[0].id)/details" -WebSession $browser
+        if ($item.id -ne $products[0].id -or !$item.profile.barcode) { throw 'Product details/barcode could not be read.' }
+        Write-Output 'PASS: product details and barcode readable through the authenticated published API.'
+    }
     $orders=Invoke-RestMethod "$base/api/orders" -WebSession $browser
     if ($env:SHELFSYNC_SMOKE_PRODUCT) {
         function Post-Operation($path, $payload, $key) {

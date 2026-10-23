@@ -20,7 +20,7 @@ On an existing local development database, a schema administrator must apply it 
 
 `scripts/Apply-Migrations.ps1` prepares this upgrade for the named local shelfsync_dev or shelfsync_test database, prompts privately for the PostgreSQL administrator password, applies migrations and grants only SELECT on the new profile table. It must be run only after user approval of the database/access change. No administrator password is stored by the script. Existing development data is preserved.
 
-The upgrade is not applied automatically at API startup. Publish the updated API and restart it after the migration; copying a new frontend alone cannot activate a new backend endpoint. The current implementation is available in artifacts/item-preview while local migration approval is pending.
+The upgrade is not applied automatically at API startup. Publish the updated API and restart it after the migration; copying a new frontend alone cannot activate a new backend endpoint. The implementation is published in artifacts/publish and enabled on localhost:5000 after the approved migration.
 
 ## Verification
 
@@ -34,4 +34,4 @@ All 46 integration tests passed in the isolated cluster. Published HTTP checks c
 
 ![Associate details verified against an isolated test product](images/associate-details.png)
 
-The existing development database has not been upgraded. Administrator execution and the limited SELECT grant are pending explicit user approval after automatic approval review rejected the administrator prompt. The running store keeps its earlier storefront assets until that upgrade and backend restart can be completed together.
+After explicit user approval, the administrator migration was completed on the local development database. The app account can read all 12 demo profiles. The tested backend/frontend were activated and the app restarted; readiness and authenticated product-details/barcode/security checks passed. Existing stock and orders were preserved.
