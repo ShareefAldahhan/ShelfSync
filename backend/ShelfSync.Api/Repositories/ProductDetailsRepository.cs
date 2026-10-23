@@ -6,7 +6,7 @@ namespace ShelfSync.Api.Repositories;
 public sealed record StockSnapshot(int Shelf, int Picked, long Reserved, int SafetyBuffer, long Available, bool Quarantined, string? QuarantineReason, DateTime UpdatedAt);
 public sealed record ProductProfile(string? Barcode, string? Aisle, string? Bay, string? Shelf, string? Bin, string? Brand, string? Supplier, int? CasePack, int? ReorderPoint, string? Notes);
 public sealed record SalesEntry(Guid EventId, int Quantity, DateTime CommittedAt);
-public sealed record ActivityEntry(long Id, string Kind, int ShelfDelta, int PickedDelta, Guid? OrderId, Guid? PosEventId, DateTime CreatedAt);
+public sealed record ActivityEntry(long Id, string Kind, int ShelfDelta, int PickedDelta, Guid? OrderId, Guid? PosEventId, DateTime CreatedAt, string? Reason, string? Actor);
 public sealed record AssociateDetails(Guid Id, string Sku, string Name, int PriceCents, ProductProfile Profile, StockSnapshot Stock, long PosUnits30Days, long FulfilledUnits30Days, List<SalesEntry> RecentSales, List<ActivityEntry> Activity, DateTime AsOf);
 
 public sealed class ProductDetailsRepository(NpgsqlDataSource db)
@@ -44,10 +44,10 @@ public sealed class ProductDetailsRepository(NpgsqlDataSource db)
             while(await r.ReadAsync(ct)) sales.Add(new(r.GetGuid(0),r.GetInt32(1),r.GetDateTime(2)));
         }
         var activity=new List<ActivityEntry>();
-        await using (var q=new NpgsqlCommand("SELECT id,kind,shelf_delta,picked_delta,order_id,pos_event_id,created_at FROM inventory_events WHERE product_id=$1 ORDER BY id DESC LIMIT 100",connection,tx))
+        await using (var q=new NpgsqlCommand("SELECT id,kind,shelf_delta,picked_delta,order_id,pos_event_id,created_at,metadata->>'reason',metadata->>'actor' FROM inventory_events WHERE product_id=$1 ORDER BY id DESC LIMIT 100",connection,tx))
         {
             q.Parameters.AddWithValue(id); await using var r=await q.ExecuteReaderAsync(ct);
-            while(await r.ReadAsync(ct)) activity.Add(new(r.GetInt64(0),r.GetString(1),r.GetInt32(2),r.GetInt32(3),r.IsDBNull(4)?null:r.GetGuid(4),r.IsDBNull(5)?null:r.GetGuid(5),r.GetDateTime(6)));
+            while(await r.ReadAsync(ct)) activity.Add(new(r.GetInt64(0),r.GetString(1),r.GetInt32(2),r.GetInt32(3),r.IsDBNull(4)?null:r.GetGuid(4),r.IsDBNull(5)?null:r.GetGuid(5),r.GetDateTime(6),Text(r,7),Text(r,8)));
         }
         await tx.CommitAsync(ct);
         return new(id,sku,name,price,profile,stock,pos,fulfilled,sales,activity,asOf);

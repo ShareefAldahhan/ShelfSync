@@ -12,6 +12,7 @@ Built with **ASP.NET Core 10 · PostgreSQL 18 · Npgsql · React · TypeScript �
 
 - Click-through associate item pages with barcode, shelf location, stock buckets, sales history and inventory activity (requires the product-profile migration).
 - Reservations with a 15-minute lifetime and safe idempotent retries.
+- Operator shelf/bin location editing and audited shelf-count corrections with stale-count and reservation safeguards.
 - Orders screen with search, state filters, cancellation, picking, shortage reporting/resolution and fulfillment.
 - POS sales with event-based deduplication and stock validation.
 - Row locks and atomic database transactions for inventory mutations and audit events.
@@ -44,7 +45,7 @@ pwsh -File scripts/Verify-Release.ps1
 
 This builds the release and runs the suite against a separate temporary, password-protected PostgreSQL instance. It does not modify the existing PostgreSQL service, databases or permissions. The temporary instance stops afterward; ignored diagnostic files remain under `artifacts/`.
 
-**Verified 23 October 2026:** 46 integration tests passed (including the associate-details extension), zero failures/skips; published reservation/order/POS workflows, stock invariants, security checks, production HTTP rejection, frontend build and lint passed. A release also built from a clean committed-source snapshot. Remote CI and Docker execution were not run locally.
+**Verified 23 October 2026:** 53 integration tests passed (including associate details and operator maintenance), zero failures/skips; published reservation/order/POS workflows, stock invariants, security checks, production HTTP rejection, frontend build and lint passed. A release also built from a clean committed-source snapshot. Remote CI and Docker execution were not run locally.
 
 ## Engineering highlights
 

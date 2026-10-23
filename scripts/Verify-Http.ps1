@@ -102,6 +102,16 @@ try {
         $missing=Invoke-WebRequest "$base/api/products/$([guid]::NewGuid())/details" -WebSession $browser -SkipHttpErrorCheck
         if ($missing.StatusCode -ne 404) { throw 'Unknown product details must return 404.' }
         Write-Output 'PASS: associate item endpoint, stock buckets, barcode, sales/fulfillment totals, activity, and 404 handling.'
+        $locationKey=[guid]::NewGuid().ToString()
+        $null=Post-Operation "/api/products/$product/location" @{aisle='A02';bay='05';shelf='03';bin='BIN-9';reason='Verified bin placement'} $locationKey
+        $correctionKey=[guid]::NewGuid().ToString()
+        $correction=@{shelfUnits=9;expectedShelfUnits=8;reason='Isolated shelf recount'}
+        $null=Post-Operation "/api/products/$product/stock-correction" $correction $correctionKey
+        $null=Post-Operation "/api/products/$product/stock-correction" $correction $correctionKey
+        $maintained=Invoke-RestMethod "$base/api/products/$product/details" -WebSession $browser
+        if($maintained.profile.bin -ne 'BIN-9' -or $maintained.stock.shelf -ne 9 -or $maintained.stock.picked -ne 0) { throw 'Item location/count update failed.' }
+        if(!($maintained.activity | Where-Object { $_.reason -eq 'Isolated shelf recount' -and $_.actor -eq 'smoke-operator' -and $_.shelfDelta -eq 1 })) { throw 'Stock correction audit missing.' }
+        Write-Output 'PASS: authenticated bin edit, shelf correction, replay and operator/reason audit.'
         Write-Output 'PASS: reserve/replay/cancel, reserve/pick/fulfill, shortage/resolve/cancel, POS/replay, final inventory.'
     }
     $null = $browser.Headers.Remove('Idempotency-Key')

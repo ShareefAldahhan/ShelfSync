@@ -144,7 +144,7 @@ internal sealed class PostgresTestScope : IAsyncDisposable
             await using var transaction = await connection.BeginTransactionAsync();
             await using (var keys = new NpgsqlCommand("""
                 DELETE FROM operation_requests
-                WHERE operation IN ('RESERVE', 'CANCEL', 'PICK', 'SHORTAGE', 'RESOLVE_SHORTAGE', 'FULFILL')
+                WHERE operation IN ('RESERVE', 'CANCEL', 'PICK', 'SHORTAGE', 'RESOLVE_SHORTAGE', 'FULFILL', 'LOCATION_UPDATE', 'INVENTORY_CORRECTION')
                   AND request_key = ANY($1);
                 """, connection, transaction))
             {

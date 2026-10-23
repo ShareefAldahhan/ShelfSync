@@ -16,6 +16,7 @@ var dataSource = NpgsqlDataSource.Create(connectionString);
 builder.Services.AddSingleton(dataSource);
 builder.Services.AddScoped<ProductRepository>();
 builder.Services.AddScoped<ProductDetailsRepository>();
+builder.Services.AddScoped<ItemMaintenanceService>();
 builder.Services.AddScoped<OrderRepository>();
 builder.Services.AddScoped<ReservationCancellationService>();
 builder.Services.AddScoped<ReservationService>();
@@ -297,5 +298,16 @@ app.MapGet("/api/orders", async (OrderRepository repository, CancellationToken c
 app.MapFallbackToFile("{*path:nonfile}", "index.html");
 app.MapGet("/api/products/{id:guid}/details", async (Guid id, ProductDetailsRepository repository, CancellationToken ct) => { var details = await repository.GetAsync(id, ct); return details is null ? Results.NotFound() : Results.Ok(details); });
 
+foreach (var action in new[] { "location", "stock-correction" })
+{
+    var correctStock = action == "stock-correction";
+    app.MapPost("/api/products/{id:guid}/" + action, async (Guid id, ItemUpdateRequest request, HttpContext context, ItemMaintenanceService service, CancellationToken ct) =>
+    {
+        if (!context.Request.Headers.TryGetValue("Idempotency-Key", out var keys) || keys.Count != 1 || !Guid.TryParse(keys[0], out var key) || key == Guid.Empty)
+            return Results.BadRequest(new { error = "A valid Idempotency-Key UUID header is required." });
+        var result = await service.UpdateAsync(id, key, request, context.User.Identity!.Name!, correctStock, ct);
+        return Results.Content(result.Json, "application/json", statusCode: result.StatusCode);
+    });
+}
 app.Run();
 public partial class Program { }

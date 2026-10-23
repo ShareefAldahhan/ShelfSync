@@ -56,3 +56,7 @@ There is no GET /api/inventory route: inventory fields are already returned with
 ## Associate details extension
 
 `GET /api/products/{id}/details` returns identity and current price; profile/barcode/location metadata; consistent stock buckets; 30-day POS and online fulfilled unit totals; the latest 100 POS sales; and the latest 100 inventory events. It requires the Operator session and the product_profiles migration. Unknown product IDs return 404. See [associate details](associate-details.md) for field semantics, provenance and upgrade instructions.
+
+## Operator item maintenance
+
+POST `/api/products/{id}/location`: `{aisle,bay,shelf,bin,reason}`. Fields are nullable strings up to 40 characters; blank clears. POST `/api/products/{id}/stock-correction`: `{shelfUnits,expectedShelfUnits,reason}`. Shelf units are an absolute count, not an increment. Count must be 0–1,000,000 and expectedShelfUnits must match current shelf count. Reason is required (3–500 characters). Both use Operator authentication, CSRF and UUID Idempotency-Key and return `{productId,operation,updated:true}` on success. Invalid input returns 400; stale counts or uncovered reservations return 409; unknown inventory returns 404. Writes and audit/replay results commit atomically. Picked quantities are not editable through this endpoint.

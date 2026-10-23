@@ -35,3 +35,17 @@ All 46 integration tests passed in the isolated cluster. Published HTTP checks c
 ![Associate details verified against an isolated test product](images/associate-details.png)
 
 After explicit user approval, the administrator migration was completed on the local development database. The app account can read all 12 demo profiles. The tested backend/frontend were activated and the app restarted; readiness and authenticated product-details/barcode/security checks passed. Existing stock and orders were preserved.
+
+## Operator editing — 23 October 2026
+
+On Overview, choose **Edit shelf / bin location** to set aisle, bay, shelf and bin (40 characters maximum per field; blank clears a field). Choose **Correct shelf quantity** to enter the physically counted shelf units as an absolute nonnegative count, up to 1,000,000. Both require a reason of 3–500 characters.
+
+Stock corrections acquire the same product inventory lock as reservations/POS. A submitted expected shelf count must match the current count; otherwise the request returns 409 and the operator must refresh/recount. A correction below live reserved units returns 409: report shortages for affected orders first. Picked quantities, safety buffer and quarantine are not silently changed. Location updates also use the inventory lock to serialize audit snapshots.
+
+Each successful update commits a RECONCILE ledger event with actor, reason, operation type, request key and before/after values. Stock corrections record the actual shelf delta; location changes use zero stock delta. The activity table displays reason and operator. UUID request keys and tab-session retry storage prevent uncertain retries from creating duplicate corrections/audit events. Reusing a key with changed values conflicts. Failed validation/conflict operations roll back their request claim and stock writes.
+
+Routes: `POST /api/products/{id}/location` with `{aisle,bay,shelf,bin,reason}`; `POST /api/products/{id}/stock-correction` with `{shelfUnits,expectedShelfUnits,reason}`. Both require Operator session, CSRF token and Idempotency-Key. Profile editing requires INSERT/UPDATE on product_profiles, approved and applied locally through `Apply-Migrations.ps1 -EnableProfileEditing`. No additional tables/columns were needed.
+
+All **53 integration tests passed**, including new invalid-count/reason, replay/conflict, stale-count, reserved-stock floor, location add/change/clear and POS/correction concurrency cases. Published HTTP checks verified authenticated edits/replay/audit on an isolated fixture. Browser checks saved a new test bin and corrected a test count, verified the result and audit actor/reason, and captured no console errors. No development stock or location values were changed by those tests. The tested build was activated on localhost and database readiness/read/security checks passed.
+
+![Operator location and shelf-count editors](images/item-editors.png)

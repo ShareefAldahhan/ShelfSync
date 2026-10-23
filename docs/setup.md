@@ -49,3 +49,5 @@ For an independently maintained test database, set `SHELFSYNC_TEST_CONNECTION` p
 ## Additive migrations
 
 After creating a fresh database with schema.sql, apply SQL files from database/migrations in filename order, then optionally seed fictional products. For existing databases, apply migrations using a schema-owner session; do not rerun schema.sql. The product-profile migration also seeds locations for existing SS products. Grant the app SELECT on product_profiles after applying that migration; it does not need ownership. See associate-details.md for the approval-based local helper and rollout steps.
+
+For operator location editing, run the approved local helper with `-EnableProfileEditing` to additionally grant INSERT/UPDATE on product_profiles. This grant was explicitly approved and applied on the original development machine. Stock corrections use existing inventory/ledger/operation permissions. Never grant the application schema ownership or administrator access for this feature.

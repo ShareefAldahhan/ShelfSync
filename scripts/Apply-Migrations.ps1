@@ -1,4 +1,4 @@
-param([string]$AdminUser='postgres', [string]$PostgresBin='C:\Program Files\PostgreSQL\18\bin')
+param([string]$AdminUser='postgres', [string]$PostgresBin='C:\Program Files\PostgreSQL\18\bin', [switch]$EnableProfileEditing)
 $ErrorActionPreference='Stop'
 $settings=Get-Content (Join-Path $env:APPDATA 'Microsoft/UserSecrets/f1743222-090c-4111-8a6c-12e064007dba/secrets.json') -Raw|ConvertFrom-Json
 $connection=if($settings.'ConnectionStrings:ShelfSync'){$settings.'ConnectionStrings:ShelfSync'}else{$settings.ConnectionStrings.ShelfSync}
@@ -17,5 +17,9 @@ try {
  }
  & "$PostgresBin/psql.exe" -w -h 127.0.0.1 -U $AdminUser -d $database -v ON_ERROR_STOP=1 -c "GRANT SELECT ON product_profiles TO $appRole;"
  if($LASTEXITCODE){throw 'Application read permission could not be granted.'}
+ if ($EnableProfileEditing) {
+  & "$PostgresBin/psql.exe" -w -h 127.0.0.1 -U $AdminUser -d $database -v ON_ERROR_STOP=1 -c "GRANT INSERT, UPDATE ON product_profiles TO $appRole;"
+  if ($LASTEXITCODE) { throw 'Profile edit permission grant failed.' }
+ }
  Write-Host 'Product metadata migration completed.' -ForegroundColor Green
 } finally {$env:PGPASSWORD=$priorPassword}
