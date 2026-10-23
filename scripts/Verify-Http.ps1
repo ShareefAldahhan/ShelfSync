@@ -1,4 +1,4 @@
-param([switch]$Published, [switch]$ProductionHttpChecks)
+param([switch]$Published, [switch]$ProductionHttpChecks, [string]$PublishDirectory='artifacts/publish')
 # Runs the real API with temporary credentials. Requires the normal local DB user secret.
 $ErrorActionPreference = 'Stop'
 Push-Location (Join-Path $PSScriptRoot '..')
@@ -17,10 +17,10 @@ try {
     if ($ProductionHttpChecks -and !$env:ConnectionStrings__ShelfSync) {
         # Production intentionally does not load development user secrets.
         $settings=Get-Content (Join-Path $env:APPDATA 'Microsoft/UserSecrets/f1743222-090c-4111-8a6c-12e064007dba/secrets.json') -Raw | ConvertFrom-Json
-        $env:ConnectionStrings__ShelfSync=$settings.ConnectionStrings.ShelfSync
+        $env:ConnectionStrings__ShelfSync=if($settings.'ConnectionStrings:ShelfSync'){$settings.'ConnectionStrings:ShelfSync'}else{$settings.ConnectionStrings.ShelfSync}
     }
     New-Item -ItemType Directory -Force artifacts | Out-Null
-    $arguments = if ($Published) { @('artifacts/publish/ShelfSync.Api.dll','--contentRoot', ('"' + (Join-Path (Get-Location) 'artifacts/publish') + '"'),'--urls','http://localhost:5088') } else { @('backend/ShelfSync.Api/bin/Debug/net10.0/ShelfSync.Api.dll','--contentRoot', ('"' + (Join-Path (Get-Location) 'backend/ShelfSync.Api') + '"'),'--urls','http://localhost:5088') }
+    $arguments = if ($Published) { @((Join-Path $PublishDirectory 'ShelfSync.Api.dll'),'--contentRoot', ('"' + (Join-Path (Get-Location) $PublishDirectory) + '"'),'--urls','http://localhost:5088') } else { @('backend/ShelfSync.Api/bin/Debug/net10.0/ShelfSync.Api.dll','--contentRoot', ('"' + (Join-Path (Get-Location) 'backend/ShelfSync.Api') + '"'),'--urls','http://localhost:5088') }
     $server = Start-Process dotnet -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput artifacts/http-stdout.log -RedirectStandardError artifacts/http-stderr.log
     $base='http://localhost:5088'
     for ($i=0; $i -lt 30; $i++) {
@@ -91,6 +91,12 @@ try {
         $null=Post-Operation '/api/pos/sales' @{eventId=$event;productId=$product;quantity=1} $event
         $stock=Invoke-RestMethod "$base/api/products/$product" -WebSession $browser
         if ($stock.shelfUnits -ne 8 -or $stock.pickedUnits -ne 0) { throw 'Final stock invariant failed.' }
+        $details=Invoke-RestMethod "$base/api/products/$product/details" -WebSession $browser
+        if ($details.stock.available -ne 8 -or $details.posUnits30Days -ne 1 -or $details.fulfilledUnits30Days -ne 1 -or $details.recentSales.Count -ne 1) { throw 'Associate product details do not match committed stock/sales.' }
+        if (!$details.profile.barcode -or $details.activity.Count -lt 1) { throw 'Associate barcode or activity history missing.' }
+        $missing=Invoke-WebRequest "$base/api/products/$([guid]::NewGuid())/details" -WebSession $browser -SkipHttpErrorCheck
+        if ($missing.StatusCode -ne 404) { throw 'Unknown product details must return 404.' }
+        Write-Output 'PASS: associate item endpoint, stock buckets, barcode, sales/fulfillment totals, activity, and 404 handling.'
         Write-Output 'PASS: reserve/replay/cancel, reserve/pick/fulfill, shortage/resolve/cancel, POS/replay, final inventory.'
     }
     $null = $browser.Headers.Remove('Idempotency-Key')

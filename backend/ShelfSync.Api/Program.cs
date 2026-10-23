@@ -15,6 +15,7 @@ var dataSource = NpgsqlDataSource.Create(connectionString);
 
 builder.Services.AddSingleton(dataSource);
 builder.Services.AddScoped<ProductRepository>();
+builder.Services.AddScoped<ProductDetailsRepository>();
 builder.Services.AddScoped<OrderRepository>();
 builder.Services.AddScoped<ReservationCancellationService>();
 builder.Services.AddScoped<ReservationService>();
@@ -294,5 +295,7 @@ app.MapGet("/health/ready", async (NpgsqlDataSource db) =>
 app.MapGet("/api/orders", async (OrderRepository repository, CancellationToken ct) => Results.Ok(await repository.GetRecentAsync(ct)));
 
 app.MapFallbackToFile("{*path:nonfile}", "index.html");
+app.MapGet("/api/products/{id:guid}/details", async (Guid id, ProductDetailsRepository repository, CancellationToken ct) => { var details = await repository.GetAsync(id, ct); return details is null ? Results.NotFound() : Results.Ok(details); });
+
 app.Run();
 public partial class Program { }

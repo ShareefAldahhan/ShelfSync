@@ -159,6 +159,7 @@ internal sealed class PostgresTestScope : IAsyncDisposable
                 "DELETE FROM orders WHERE product_id = $1;",
                 "DELETE FROM pos_events WHERE product_id = $1;",
                 "DELETE FROM inventory WHERE product_id = $1;",
+                "DELETE FROM product_profiles WHERE product_id = $1;",
                 "DELETE FROM products WHERE id = $1;"
             ];
             foreach (var sql in statements)

@@ -45,3 +45,7 @@ For an independently maintained test database, set `SHELFSYNC_TEST_CONNECTION` p
 | Port already used | Stop the instance using that port, or choose a different test port |
 | Old dashboard after source changes | Rebuild with Start-Local.ps1 -Build, then refresh the browser |
 | Uncertain mutation | Retry the saved operation in the same tab before closing it |
+
+## Additive migrations
+
+After creating a fresh database with schema.sql, apply SQL files from database/migrations in filename order, then optionally seed fictional products. For existing databases, apply migrations using a schema-owner session; do not rerun schema.sql. The product-profile migration also seeds locations for existing SS products. Grant the app SELECT on product_profiles after applying that migration; it does not need ownership. See associate-details.md for the approval-based local helper and rollout steps.

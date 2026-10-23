@@ -10,7 +10,7 @@ Built with **ASP.NET Core 10 · PostgreSQL 18 · Npgsql · React · TypeScript �
 
 ## What works
 
-- Searchable inventory dashboard with shelf, picked, safety-buffer and quarantine values.
+- Click-through associate item pages with barcode, shelf location, stock buckets, sales history and inventory activity (requires the product-profile migration).
 - Reservations with a 15-minute lifetime and safe idempotent retries.
 - Orders screen with search, state filters, cancellation, picking, shortage reporting/resolution and fulfillment.
 - POS sales with event-based deduplication and stock validation.
@@ -44,7 +44,7 @@ pwsh -File scripts/Verify-Release.ps1
 
 This builds the release and runs the suite against a separate temporary, password-protected PostgreSQL instance. It does not modify the existing PostgreSQL service, databases or permissions. The temporary instance stops afterward; ignored diagnostic files remain under `artifacts/`.
 
-**Verified 22 October 2026:** 42 integration tests passed, zero failures/skips; published reservation/order/POS workflows, stock invariants, security checks, production HTTP rejection, frontend build and lint passed. A release also built from a clean committed-source snapshot. Remote CI and Docker execution were not run locally.
+**Verified 23 October 2026:** 46 integration tests passed (including the associate-details extension), zero failures/skips; published reservation/order/POS workflows, stock invariants, security checks, production HTTP rejection, frontend build and lint passed. A release also built from a clean committed-source snapshot. Remote CI and Docker execution were not run locally.
 
 ## Engineering highlights
 
@@ -76,6 +76,7 @@ Produces `artifacts/publish/`, `artifacts/publish.zip` and its SHA-256 checksum.
 | --- | --- |
 | [Setup](docs/setup.md) | Prerequisites, database roles, configuration and startup |
 | [Architecture](docs/architecture.md) | Actual file map, request flow, stock rules and tradeoffs |
+| [Associate item details](docs/associate-details.md) | Metadata migration, stock definitions and sales history |
 | [API](docs/api-contract.md) | Implemented routes, authentication, payloads and errors |
 | [Release guide](docs/local-release.md) | Verification evidence, packaging and operational limits |
 | [Demo and portfolio notes](docs/portfolio.md) | Walkthrough, interview talking points and project description |

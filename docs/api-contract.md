@@ -52,3 +52,7 @@ A stale product screen is not a stock guarantee. The service rechecks reservatio
 ## Deliberate omissions
 
 There is no GET /api/inventory route: inventory fields are already returned with products. There are no receiving, reconciliation, picked-restock, customer account, registration, reset-password, or external-feed ingestion routes. RESTOCK_PENDING is a schema value, not an exposed operation.
+
+## Associate details extension
+
+`GET /api/products/{id}/details` returns identity and current price; profile/barcode/location metadata; consistent stock buckets; 30-day POS and online fulfilled unit totals; the latest 100 POS sales; and the latest 100 inventory events. It requires the Operator session and the product_profiles migration. Unknown product IDs return 404. See [associate details](associate-details.md) for field semantics, provenance and upgrade instructions.
