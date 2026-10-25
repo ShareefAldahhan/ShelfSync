@@ -48,7 +48,9 @@ try {
     $null=Request $admin 'POST' '/api/admin/users' @{username=$aName;password=$accountPassword;role='Customer'} 201
     $null=Request $admin 'POST' '/api/admin/users' @{username=$bName;password=$accountPassword;role='Customer'} 201
     $associate=Login $assocName $accountPassword;$manager=Login $managerName $accountPassword;$a=Login $aName $accountPassword;$b=Login $bName $accountPassword
-    $products=@(Request $a 'GET' '/api/products' $null 200);$product=$products[0].id
+    $products=@(Request $a 'GET' '/api/products' $null 200)
+    $product=($products|Where-Object {$_.shelfUnits -ge 3}|Select-Object -First 1).id
+    if(!$product){throw 'Access verification needs an isolated stocked product fixture; run Verify-Release.ps1 or seed database/ci-fixture.sql in CI.'}
     $null=Request $associate 'POST' '/api/reservations' @{productId=$product;quantity=1} 403
     $null=Request $associate 'POST' '/api/cart/reserve' @{items=@(@{productId=$product;quantity=1})} 403
     $null=Request $associate 'POST' "/api/payments/orders/$([guid]::NewGuid())/checkout" @{} 403

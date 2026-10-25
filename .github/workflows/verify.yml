@@ -4,7 +4,7 @@ permissions:
   contents: read
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:18
@@ -21,12 +21,13 @@ jobs:
       PGPASSWORD: local-ci-only
       ConnectionStrings__ShelfSync: Host=localhost;Database=shelfsync_test;Username=shelfsync_test;Password=local-ci-only
       Stripe__Enabled: 'false'
+      SHELFSYNC_SMOKE_PRODUCT: f0000000-0000-4000-8000-000000000001
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           cache: npm
@@ -34,6 +35,8 @@ jobs:
       - run: psql -h localhost -U shelfsync_test -d shelfsync_test -v ON_ERROR_STOP=1 -f database/schema.sql
       - run: for pass in 1 2; do for file in database/migrations/*.sql; do psql -h localhost -U shelfsync_test -d shelfsync_test -v ON_ERROR_STOP=1 -f "$file"; done; done
       - run: dotnet test tests/ShelfSync.Tests -c Release
+      - name: Seed isolated published API fixture
+        run: psql -h localhost -U shelfsync_test -d shelfsync_test -v ON_ERROR_STOP=1 -f database/ci-fixture.sql
       - run: npm ci --prefix frontend
       - run: npm --prefix frontend run lint
       - run: npm --prefix frontend test
@@ -45,7 +48,7 @@ jobs:
       - name: Verify published authentication, roles and transport
         shell: pwsh
         run: |
-          dotnet publish backend/ShelfSync.Api -c Release -o artifacts/ci-publish
+          dotnet publish backend/ShelfSync.Api/ShelfSync.Api.csproj -c Release -o artifacts/ci-publish
           if ($LASTEXITCODE) { throw 'Publish failed.' }
           Copy-Item frontend/dist artifacts/ci-publish/wwwroot -Recurse
           ./scripts/Verify-Http.ps1 -Published -PublishDirectory artifacts/ci-publish
