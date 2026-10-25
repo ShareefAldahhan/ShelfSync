@@ -1,4 +1,4 @@
-﻿
+
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -17,7 +17,7 @@ public sealed class ReservationService(NpgsqlDataSource db)
     public async Task<ReservationResult> CreateAsync(
         ReservationRequest request,
         Guid requestKey,
-        CancellationToken ct = default)
+        CancellationToken ct = default, Guid? ownerUserId = null)
     {
         // Validate before starting a database transaction.
         if (request.ProductId == Guid.Empty ||
@@ -27,6 +27,7 @@ public sealed class ReservationService(NpgsqlDataSource db)
         }
 
         var payload = $"{request.ProductId:D}:{request.Quantity}";
+        if (ownerUserId is not null) payload += $":{ownerUserId:D}";
         var hash = Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
 
@@ -199,10 +200,10 @@ public sealed class ReservationService(NpgsqlDataSource db)
                     INSERT INTO orders
                         (id, product_id, quantity,
                          unit_price_cents, state,
-                         expires_at, created_at, updated_at)
+                         expires_at, created_at, updated_at, owner_user_id)
                     VALUES
                         ($1, $2, $3, $4, 'RESERVED',
-                         $5, $6, $6);
+                         $5, $6, $6, $7);
                     """;
 
                 await using (var orderCommand =
@@ -217,6 +218,7 @@ public sealed class ReservationService(NpgsqlDataSource db)
                     orderCommand.Parameters.AddWithValue(priceCents);
                     orderCommand.Parameters.AddWithValue(expiresAt);
                     orderCommand.Parameters.AddWithValue(decisionTime);
+                    orderCommand.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Uuid, Value = (object?)ownerUserId ?? DBNull.Value });
 
                     await orderCommand.ExecuteNonQueryAsync(ct);
                 }

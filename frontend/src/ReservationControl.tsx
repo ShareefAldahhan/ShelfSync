@@ -65,7 +65,7 @@ export default function ReservationControl({ productId, name, changed, unavailab
     </div>
     <div role="status" aria-live="polite">
       {message}
-      {receipt && <div>Order: {receipt.orderId}<br />{receipt.state} · Expires {new Date(receipt.expiresAt).toLocaleString()}</div>}
+      {receipt && <div>Order: {receipt.orderId}<br />{receipt.state} · Expires {new Date(receipt.expiresAt).toLocaleString()}<br/><a className="payment-link" href={`#payment/${receipt.orderId}`}>View payment details</a><small className="payment-waiting">Payment opens after staff pick your items.</small></div>}
     </div>
   </div>
 }

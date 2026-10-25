@@ -1,0 +1,9 @@
+import { useEffect, useState } from 'react'
+import type { Product } from './api'
+import { secureFetch } from './session'
+import { ProductArt } from './ProductArt'
+export default function CustomerItem({id,back,addToCart}:{id:string;back:()=>void;addToCart:(id:string)=>void}) {
+ const [item,setItem]=useState<Product|null>(null);const [error,setError]=useState('');const [added,setAdded]=useState(false)
+ useEffect(()=>{const controller=new AbortController();window.scrollTo(0,0);void secureFetch(`/api/products/${id}`,{signal:controller.signal}).then(async r=>{if(!r.ok)throw new Error(r.status===404?'Product not found.':'Unable to load product.');return r.json()}).then(p=>{if(!controller.signal.aborted)setItem(p)}).catch(e=>{if(!controller.signal.aborted)setError(e instanceof Error?e.message:'Unable to load product.')});return()=>controller.abort()},[id])
+ return <div className="associate-page"><header className="associate-top"><button onClick={back}>← Back to shop</button><strong>ShelfSync Market</strong></header><main className="associate-main">{error&&<p role="alert">{error}</p>}{!item&&!error&&<p role="status">Loading product…</p>}{item&&<section className="item-heading"><div className="item-art"><ProductArt product={item}/></div><div><div className="hero-eyebrow">YOUR EVERYDAY ESSENTIALS</div><h1>{item.name}</h1><p>SKU {item.sku}</p><div className="item-price">{new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(item.priceCents/100)}</div><p>Add to your pickup cart. Stock is held when you check out, and staff prepare your order after payment.</p><button className="cart-add" disabled={item.quarantined||item.shelfUnits===0} onClick={()=>{addToCart(id);setAdded(true)}}>Add to cart</button>{added&&<p role="status">Added to cart. <a href="#cart">View cart and checkout</a></p>}</div></section>}</main></div>
+}

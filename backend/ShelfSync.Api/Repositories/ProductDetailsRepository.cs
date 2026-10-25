@@ -3,7 +3,7 @@ using Npgsql;
 
 namespace ShelfSync.Api.Repositories;
 
-public sealed record StockSnapshot(int Shelf, int Picked, long Reserved, int SafetyBuffer, long Available, bool Quarantined, string? QuarantineReason, DateTime UpdatedAt);
+public sealed record StockSnapshot(int Shelf, int Picked, long Reserved, int SafetyBuffer, long Available, bool Quarantined, string? QuarantineReason, DateTime UpdatedAt, int Backroom=0, int Damaged=0);
 public sealed record ProductProfile(string? Barcode, string? Aisle, string? Bay, string? Shelf, string? Bin, string? Brand, string? Supplier, int? CasePack, int? ReorderPoint, string? Notes);
 public sealed record SalesEntry(Guid EventId, int Quantity, DateTime CommittedAt);
 public sealed record ActivityEntry(long Id, string Kind, int ShelfDelta, int PickedDelta, Guid? OrderId, Guid? PosEventId, DateTime CreatedAt, string? Reason, string? Actor);
@@ -18,10 +18,10 @@ public sealed class ProductDetailsRepository(NpgsqlDataSource db)
         await using var command = new NpgsqlCommand("""
             SELECT p.sku,p.name,p.price_cents,i.shelf_units,i.picked_units,i.safety_buffer,
                    i.quarantined,i.quarantine_reason,i.updated_at,
-                   d.barcode,d.aisle,d.bay,d.shelf,d.bin,d.brand,d.supplier,d.case_pack,d.reorder_point,d.notes,
+                   d.barcode,d.aisle,d.bay,d.shelf,d.bin,d.brand,d.supplier,d.case_pack,COALESCE(d.reorder_point,i.reorder_point),d.notes,
                    COALESCE((SELECT SUM(quantity) FROM orders WHERE product_id=p.id AND state='RESERVED' AND expires_at>CURRENT_TIMESTAMP),0),
                    COALESCE((SELECT SUM(quantity) FROM pos_events WHERE product_id=p.id AND committed_at>=CURRENT_TIMESTAMP-INTERVAL '30 days'),0),
-                   COALESCE((SELECT SUM(-picked_delta) FROM inventory_events WHERE product_id=p.id AND kind='FULFILL' AND created_at>=CURRENT_TIMESTAMP-INTERVAL '30 days'),0), CURRENT_TIMESTAMP
+                   COALESCE((SELECT SUM(-picked_delta) FROM inventory_events WHERE product_id=p.id AND kind='FULFILL' AND created_at>=CURRENT_TIMESTAMP-INTERVAL '30 days'),0), CURRENT_TIMESTAMP,i.backroom_units,i.damaged_units
             FROM products p JOIN inventory i ON i.product_id=p.id
             LEFT JOIN product_profiles d ON d.product_id=p.id WHERE p.id=$1
             """, connection, tx);
@@ -33,7 +33,7 @@ public sealed class ProductDetailsRepository(NpgsqlDataSource db)
             if (!await r.ReadAsync(ct)) return null;
             sku=r.GetString(0); name=r.GetString(1); price=r.GetInt32(2);
             var reserved=r.GetInt64(19);
-            stock=new(r.GetInt32(3),r.GetInt32(4),reserved,r.GetInt32(5),r.GetBoolean(6) ? 0 : Math.Max(0,(long)r.GetInt32(3)-reserved-r.GetInt32(5)),r.GetBoolean(6),Text(r,7),r.GetDateTime(8));
+            stock=new(r.GetInt32(3),r.GetInt32(4),reserved,r.GetInt32(5),r.GetBoolean(6) ? 0 : Math.Max(0,(long)r.GetInt32(3)-reserved-r.GetInt32(5)),r.GetBoolean(6),Text(r,7),r.GetDateTime(8),r.GetInt32(23),r.GetInt32(24));
             profile=new(Text(r,9) ?? sku,Text(r,10),Text(r,11),Text(r,12),Text(r,13),Text(r,14),Text(r,15),r.IsDBNull(16)?null:r.GetInt32(16),r.IsDBNull(17)?null:r.GetInt32(17),Text(r,18));
             pos=r.GetInt64(20);fulfilled=r.GetInt64(21);asOf=r.GetDateTime(22);
         }

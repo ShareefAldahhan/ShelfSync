@@ -1,0 +1,6 @@
+import { useState } from 'react'
+import { secureFetch } from './session'
+export default function PasswordChange({changed}:{changed:()=>void}) {
+ const [current,setCurrent]=useState('');const [next,setNext]=useState('');const [error,setError]=useState('');const [pending,setPending]=useState(false)
+ return <form className="item-panel password-change" onSubmit={e=>{e.preventDefault();if(pending)return;setPending(true);setError('');void secureFetch('/api/account/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({currentPassword:current,newPassword:next})}).then(async r=>{if(!r.ok){const data=await r.json().catch(()=>({}));throw new Error(data.error??'Unable to change password.')}setCurrent('');setNext('');changed()}).catch(e=>setError(e instanceof Error?e.message:'Unable to change password.')).finally(()=>setPending(false))}}><h2>Change password</h2><label>Current password<input type="password" autoComplete="current-password" maxLength={1024} required value={current} onChange={e=>setCurrent(e.target.value)} /></label><label>New password<input type="password" autoComplete="new-password" minLength={12} maxLength={1024} required value={next} onChange={e=>setNext(e.target.value)} /></label><button disabled={pending}>{pending?'Updating…':'Update password'}</button>{error&&<p role="alert">{error}</p>}</form>
+}

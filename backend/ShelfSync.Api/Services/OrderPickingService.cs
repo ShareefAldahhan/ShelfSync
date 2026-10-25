@@ -6,12 +6,12 @@ using Npgsql;
 
 namespace ShelfSync.Api.Services;
 
-public sealed class OrderPickingService(NpgsqlDataSource db)
+public sealed class OrderPickingService(NpgsqlDataSource db,IConfiguration? configuration=null)
 {
 	public async Task<ReservationResult> PickAsync(
 		Guid orderId,
 		Guid requestKey,
-		CancellationToken ct = default)
+		CancellationToken ct = default, bool requireCustomerReservation = false)
 	{
 		if (orderId == Guid.Empty || requestKey == Guid.Empty)
 		{
@@ -20,7 +20,7 @@ public sealed class OrderPickingService(NpgsqlDataSource db)
 
 		var payloadHash = Convert.ToHexString(
 			SHA256.HashData(
-				Encoding.UTF8.GetBytes(orderId.ToString("D"))));
+				Encoding.UTF8.GetBytes((orderId.ToString("D") + (requireCustomerReservation ? ":customer-reservation" : "")))));
 
 		await using var connection = await db.OpenConnectionAsync(ct);
 		await using var transaction = await connection.BeginTransactionAsync(ct);
@@ -143,9 +143,14 @@ public sealed class OrderPickingService(NpgsqlDataSource db)
 		string state;
 		int quantity;
 		DateTime expiresAt;
+        bool customerReservation;
+        bool paymentConfirmed;
 
 		await using (var order = new NpgsqlCommand("""
-            SELECT state, quantity, expires_at
+            SELECT state, quantity, expires_at,
+                   EXISTS(SELECT 1 FROM app_user_roles ur JOIN app_roles r ON r."Id"=ur."RoleId"
+                          WHERE ur."UserId"=orders.owner_user_id AND r."Name"='Customer'),
+                   EXISTS(SELECT 1 FROM order_payment_status ps WHERE ps.linked_order_id=orders.id AND ps.state='PAID')
             FROM orders
             WHERE id = $1 AND product_id = $2
             FOR UPDATE;
@@ -165,6 +170,8 @@ public sealed class OrderPickingService(NpgsqlDataSource db)
 			state = reader.GetString(0);
 			quantity = reader.GetInt32(1);
 			expiresAt = reader.GetDateTime(2);
+            customerReservation=reader.GetBoolean(3);
+            paymentConfirmed=reader.GetBoolean(4);
 		}
 
 		// 6. Read database time AFTER acquiring both locks.
@@ -188,6 +195,14 @@ public sealed class OrderPickingService(NpgsqlDataSource db)
 		{
 			failure = Error(409, "Reservation has expired.");
 		}
+		else if(customerReservation && configuration?.GetValue<bool>("Stripe:Enabled")==true && !paymentConfirmed)
+        {
+            failure=Error(409,"Only payment-confirmed customer orders can be picked.");
+        }
+        else if (requireCustomerReservation && !customerReservation)
+        {
+            failure=Error(409,"Associates can only pick active reservations belonging to a customer account.");
+        }
 		else if (shelfUnits < quantity)
 		{
 			failure = Error(409, "Insufficient shelf inventory to pick order.");

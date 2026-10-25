@@ -1,5 +1,7 @@
 name: verify
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -17,6 +19,8 @@ jobs:
     env:
       SHELFSYNC_TEST_CONNECTION: Host=localhost;Database=shelfsync_test;Username=shelfsync_test;Password=local-ci-only
       PGPASSWORD: local-ci-only
+      ConnectionStrings__ShelfSync: Host=localhost;Database=shelfsync_test;Username=shelfsync_test;Password=local-ci-only
+      Stripe__Enabled: 'false'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -28,9 +32,23 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: psql -h localhost -U shelfsync_test -d shelfsync_test -v ON_ERROR_STOP=1 -f database/schema.sql
-      - run: for file in database/migrations/*.sql; do psql -h localhost -U shelfsync_test -d shelfsync_test -v ON_ERROR_STOP=1 -f "$file"; done
+      - run: for pass in 1 2; do for file in database/migrations/*.sql; do psql -h localhost -U shelfsync_test -d shelfsync_test -v ON_ERROR_STOP=1 -f "$file"; done; done
       - run: dotnet test tests/ShelfSync.Tests -c Release
       - run: npm ci --prefix frontend
       - run: npm --prefix frontend run lint
+      - run: npm --prefix frontend test
       - run: npm --prefix frontend run build
+      - run: npm --prefix frontend audit --omit=dev
+      - name: Verify release integrity tools
+        shell: pwsh
+        run: ./scripts/Test-ReleaseTools.ps1
+      - name: Verify published authentication, roles and transport
+        shell: pwsh
+        run: |
+          dotnet publish backend/ShelfSync.Api -c Release -o artifacts/ci-publish
+          if ($LASTEXITCODE) { throw 'Publish failed.' }
+          Copy-Item frontend/dist artifacts/ci-publish/wwwroot -Recurse
+          ./scripts/Verify-Http.ps1 -Published -PublishDirectory artifacts/ci-publish
+          ./scripts/Verify-Http.ps1 -Published -ProductionHttpChecks -PublishDirectory artifacts/ci-publish
+          ./scripts/Verify-Access.ps1 -PublishDirectory artifacts/ci-publish
       - run: docker build -t shelfsync:ci .

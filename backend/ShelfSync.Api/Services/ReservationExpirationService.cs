@@ -7,12 +7,13 @@ public sealed class ReservationExpirationService(NpgsqlDataSource db)
 {
 	private const int BatchSize = 100;
 
-	public async Task<int> ExpireBatchAsync(CancellationToken ct = default)
+	public async Task<int> ExpireBatchAsync(CancellationToken ct = default,Guid? productId=null)
 	{
 		const string candidatesSql = """
             SELECT id, product_id
             FROM orders
             WHERE state = 'RESERVED'
+              AND ($2::uuid IS NULL OR product_id=$2)
               AND expires_at <= clock_timestamp()
             ORDER BY expires_at, id
             LIMIT $1;
@@ -26,6 +27,7 @@ public sealed class ReservationExpirationService(NpgsqlDataSource db)
 				new NpgsqlCommand(candidatesSql, connection);
 
 			command.Parameters.AddWithValue(BatchSize);
+            command.Parameters.Add(new NpgsqlParameter{NpgsqlDbType=NpgsqlTypes.NpgsqlDbType.Uuid,Value=(object?)productId??DBNull.Value});
 
 			await using var reader =
 				await command.ExecuteReaderAsync(ct);
@@ -83,8 +85,11 @@ public sealed class ReservationExpirationService(NpgsqlDataSource db)
 
 			if (result is null)
 			{
-				throw new InvalidOperationException(
-					"Inventory row missing for reservation.");
+                // The candidate list is a snapshot. Concurrent cleanup may remove the whole order.
+                await using var exists=new NpgsqlCommand("SELECT EXISTS(SELECT 1 FROM orders WHERE id=$1)",connection,transaction);
+                exists.Parameters.AddWithValue(orderId);
+                if(!(bool)(await exists.ExecuteScalarAsync(ct))!)return false;
+                throw new InvalidOperationException("Inventory row missing for reservation.");
 			}
 		}
 

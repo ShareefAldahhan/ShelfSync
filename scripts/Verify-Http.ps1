@@ -1,6 +1,9 @@
 param([switch]$Published, [switch]$ProductionHttpChecks, [string]$PublishDirectory='artifacts/publish')
-# Runs the real API with temporary credentials. Requires the normal local DB user secret.
+# Runs the real API with temporary credentials only in the isolated test database.
+$processOptions=@{}
+if($IsWindows){$processOptions.WindowStyle='Hidden'}
 $ErrorActionPreference = 'Stop'
+if ($env:ConnectionStrings__ShelfSync -notmatch '(?i)(?:^|;)Database=shelfsync_test(?:;|$)') { throw 'Use Verify-Release.ps1: HTTP checks create disposable accounts and require shelfsync_test.' }
 Push-Location (Join-Path $PSScriptRoot '..')
 $server = $null
 $priorConnection = $env:ConnectionStrings__ShelfSync
@@ -20,11 +23,12 @@ try {
         $env:ConnectionStrings__ShelfSync=if($settings.'ConnectionStrings:ShelfSync'){$settings.'ConnectionStrings:ShelfSync'}else{$settings.ConnectionStrings.ShelfSync}
     }
     New-Item -ItemType Directory -Force artifacts | Out-Null
-    $arguments = if ($Published) { @((Join-Path $PublishDirectory 'ShelfSync.Api.dll'),'--contentRoot', ('"' + (Join-Path (Get-Location) $PublishDirectory) + '"'),'--urls','http://localhost:5088') } else { @('backend/ShelfSync.Api/bin/Debug/net10.0/ShelfSync.Api.dll','--contentRoot', ('"' + (Join-Path (Get-Location) 'backend/ShelfSync.Api') + '"'),'--urls','http://localhost:5088') }
-    $server = Start-Process dotnet -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput artifacts/http-stdout.log -RedirectStandardError artifacts/http-stderr.log
+    $arguments = if ($Published) { $publishedRoot=[IO.Path]::GetFullPath($PublishDirectory); @(('"'+(Join-Path $publishedRoot 'ShelfSync.Api.dll')+'"'),'--contentRoot', ('"' + $publishedRoot + '"'),'--urls','http://localhost:5088') } else { @('backend/ShelfSync.Api/bin/Debug/net10.0/ShelfSync.Api.dll','--contentRoot', ('"' + (Join-Path (Get-Location) 'backend/ShelfSync.Api') + '"'),'--urls','http://localhost:5088') }
+    $server = Start-Process dotnet -ArgumentList $arguments @processOptions -PassThru -RedirectStandardOutput artifacts/http-stdout.log -RedirectStandardError artifacts/http-stderr.log
     $base='http://localhost:5088'
     for ($i=0; $i -lt 30; $i++) {
-        try { $null=Invoke-RestMethod "$base/health/live"; break } catch { Start-Sleep -Milliseconds 500 }
+        if($server.HasExited){throw 'Verification API exited; inspect artifacts/http-stderr.log.'}
+        try { $null=Invoke-RestMethod "$base/health/live" -TimeoutSec 2; break } catch { Start-Sleep -Milliseconds 500 }
     }
     if ($ProductionHttpChecks) {
         foreach ($path in @('/api/auth/session','/api/products')) {
@@ -131,9 +135,10 @@ try {
     # A changed, still well-formed credential hash must revoke previously signed cookies.
     $bytes[60]=$bytes[60] -bxor 1
     $env:Operator__PasswordHash=[Convert]::ToBase64String($bytes)
-    $server=Start-Process dotnet -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput artifacts/http-rotated-stdout.log -RedirectStandardError artifacts/http-rotated-stderr.log
+    $server=Start-Process dotnet -ArgumentList $arguments @processOptions -PassThru -RedirectStandardOutput artifacts/http-rotated-stdout.log -RedirectStandardError artifacts/http-rotated-stderr.log
     for ($i=0; $i -lt 30; $i++) {
-        try { $null=Invoke-RestMethod "$base/health/live"; break } catch { Start-Sleep -Milliseconds 500 }
+        if($server.HasExited){throw 'Verification API exited; inspect artifacts/http-stderr.log.'}
+        try { $null=Invoke-RestMethod "$base/health/live" -TimeoutSec 2; break } catch { Start-Sleep -Milliseconds 500 }
     }
     $denied=Invoke-WebRequest "$base/api/products" -WebSession $oldSession -SkipHttpErrorCheck
     if ($denied.StatusCode -ne 401) { throw 'Credential change did not revoke the old session.' }

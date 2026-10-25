@@ -1,4 +1,5 @@
-﻿using System.Security.Cryptography;
+using ShelfSync.Api.Payments;
+using System.Security.Cryptography;
 using System.Text;
 using Npgsql;
 
@@ -10,14 +11,14 @@ public sealed class ReservationCancellationService(
 	public async Task<ReservationResult> CancelAsync(
 		Guid orderId,
 		Guid requestKey,
-		CancellationToken ct = default)
+		CancellationToken ct = default, Guid? customerId = null)
 	{
 		if (orderId == Guid.Empty || requestKey == Guid.Empty)
 		{
 			return Error(400, "Invalid order ID or idempotency key.");
 		}
 
-		var payload = orderId.ToString("D");
+		var payload = orderId.ToString("D") + (customerId is null ? "" : $":{customerId:D}");
 
 		var hash = Convert.ToHexString(
 			SHA256.HashData(
@@ -28,6 +29,13 @@ public sealed class ReservationCancellationService(
 
 		await using var transaction =
 			await connection.BeginTransactionAsync(ct);
+
+        if (customerId is not null)
+        {
+            await using var ownership = new NpgsqlCommand("SELECT EXISTS(SELECT 1 FROM orders WHERE id=$1 AND owner_user_id=$2)", connection, transaction);
+            ownership.Parameters.AddWithValue(orderId); ownership.Parameters.AddWithValue(customerId.Value);
+            if (!(bool)(await ownership.ExecuteScalarAsync(ct))!) return Error(404, "Reservation was not found.");
+        }
 
 		const string claimSql = """
     INSERT INTO operation_requests
@@ -193,6 +201,8 @@ public sealed class ReservationCancellationService(
 				(await timeCommand.ExecuteScalarAsync(ct))!;
 		}
 
+        var paymentError=await PaymentGuard.CancellationError(connection,transaction,orderId,ct);
+        if(paymentError is not null)return Error(409,paymentError);
 		ReservationResult result;
 
 		if (state != "RESERVED" || expiresAt <= decisionTime)

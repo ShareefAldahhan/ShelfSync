@@ -1,313 +1,50 @@
-using ShelfSync.Api.Security;
-
+using ShelfSync.Api.Payments;
+using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using ShelfSync.Api.Accounts;
+using ShelfSync.Api.Endpoints;
 using ShelfSync.Api.Repositories;
-using ShelfSync.Api.Models;
+using ShelfSync.Api.Security;
 using ShelfSync.Api.Services;
 
-
-var builder = WebApplication.CreateBuilder(args);
-
-var connectionString = builder.Configuration.GetConnectionString("ShelfSync")
-	?? throw new InvalidOperationException("Connection string 'ShelfSync' not found.");
-
-var dataSource = NpgsqlDataSource.Create(connectionString);
-
-builder.Services.AddSingleton(dataSource);
-builder.Services.AddScoped<ProductRepository>();
-builder.Services.AddScoped<ProductDetailsRepository>();
-builder.Services.AddScoped<ItemMaintenanceService>();
-builder.Services.AddScoped<OrderRepository>();
-builder.Services.AddScoped<ReservationCancellationService>();
-builder.Services.AddScoped<ReservationService>();
-builder.Services.AddSingleton<ReservationExpirationService>();
-builder.Services.AddHostedService<ReservationExpirationWorker>();
-builder.Services.AddScoped<OrderPickingService>();
-builder.Services.AddScoped<OrderShortageService>();
-builder.Services.AddScoped<OrderShortageResolutionService>();
-builder.Services.AddScoped<OrderFulfillmentService>();
-builder.Services.AddScoped<PosSaleService>();
-
-builder.AddOperatorSecurity();
-builder.Services.AddProblemDetails();
-var app = builder.Build();
-app.UseExceptionHandler();
-app.UseOperatorSecurity();
-app.UseDefaultFiles();
-app.UseStaticFiles();
-
-// Liveness: checks whether the API process can respond.
-
-app.MapPost("/api/pos/sales", async (
-	PosSaleRequest request,
-	PosSaleService service,
-	CancellationToken cancellationToken) =>
+var builder=WebApplication.CreateBuilder(args);
+if(args.Length==2&&args[0]=="--export-accounts-schema")
 {
-	var result = await service.RecordAsync(request, cancellationToken);
-
-	return Results.Content(
-		result.Json,
-		"application/json",
-		statusCode: result.StatusCode);
-});
-
-
-app.MapPost("/api/orders/{orderId:guid}/fulfill", async (
-	Guid orderId,
-	HttpRequest httpRequest,
-	OrderFulfillmentService service,
-	CancellationToken cancellationToken) =>
-{
-	if (!httpRequest.Headers.TryGetValue(
-			"Idempotency-Key", out var keyValues) ||
-		keyValues.Count != 1 ||
-		!Guid.TryParse(keyValues[0], out var requestKey) ||
-		requestKey == Guid.Empty)
-	{
-		return Results.BadRequest(new
-		{
-			error = "A valid Idempotency-Key UUID header is required."
-		});
-	}
-
-	var result = await service.FulfillAsync(
-		orderId,
-		requestKey,
-		cancellationToken);
-
-	return Results.Content(
-		result.Json,
-		"application/json",
-		statusCode: result.StatusCode);
-});
-
-
-app.MapPost("/api/orders/{orderId:guid}/resolve-shortage", async (
-    Guid orderId,
-    HttpRequest httpRequest,
-    OrderShortageResolutionService service,
-    CancellationToken cancellationToken) =>
-{
-    if (!httpRequest.Headers.TryGetValue(
-            "Idempotency-Key", out var keyValues) ||
-        keyValues.Count != 1 ||
-        !Guid.TryParse(keyValues[0], out var requestKey) ||
-        requestKey == Guid.Empty)
-    {
-        return Results.BadRequest(new
-        {
-            error = "A valid Idempotency-Key UUID header is required."
-        });
-    }
-
-    var result = await service.ResolveAsync(
-        orderId,
-        requestKey,
-        cancellationToken);
-
-    return Results.Content(
-        result.Json,
-        "application/json",
-        statusCode: result.StatusCode);
-});
-
-
-app.MapPost("/api/orders/{orderId:guid}/shortage", async (
-	Guid orderId,
-	HttpRequest httpRequest,
-	OrderShortageService service,
-	CancellationToken cancellationToken) =>
-{
-	if (!httpRequest.Headers.TryGetValue(
-			"Idempotency-Key", out var keyValues) ||
-		keyValues.Count != 1 ||
-		!Guid.TryParse(keyValues[0], out var requestKey) ||
-		requestKey == Guid.Empty)
-	{
-		return Results.BadRequest(new
-		{
-			error = "A valid Idempotency-Key UUID header is required."
-		});
-	}
-
-	var result = await service.ReportAsync(
-		orderId,
-		requestKey,
-		cancellationToken);
-
-	return Results.Content(
-		result.Json,
-		"application/json",
-		statusCode: result.StatusCode);
-});
-
-
-app.MapPost("/api/orders/{orderId:guid}/pick", async (
-	Guid orderId,
-	HttpRequest httpRequest,
-	OrderPickingService service,
-	CancellationToken cancellationToken) =>
-{
-	if (!httpRequest.Headers.TryGetValue(
-			"Idempotency-Key", out var keyValues) ||
-		keyValues.Count != 1 ||
-		!Guid.TryParse(keyValues[0], out var requestKey) ||
-		requestKey == Guid.Empty)
-	{
-		return Results.BadRequest(new
-		{
-			error = "A valid Idempotency-Key UUID header is required."
-		});
-	}
-
-	var result = await service.PickAsync(
-		orderId,
-		requestKey,
-		cancellationToken);
-
-	return Results.Content(
-		result.Json,
-		"application/json",
-		statusCode: result.StatusCode);
-});
-
-app.MapPost("/api/reservations", async (
-	ReservationRequest request,
-	HttpRequest httpRequest,
-	ReservationService service,
-	CancellationToken cancellationToken) =>
-{
-	if (!httpRequest.Headers.TryGetValue(
-			"Idempotency-Key", out var keyValues) ||
-		keyValues.Count != 1 ||
-		!Guid.TryParse(keyValues[0], out var requestKey) ||
-		requestKey == Guid.Empty)
-	{
-		return Results.BadRequest(new
-		{
-			error = "A valid Idempotency-Key UUID header is required."
-		});
-	}
-
-	var result = await service.CreateAsync(
-		request,
-		requestKey,
-		cancellationToken);
-
-	return Results.Content(
-		result.Json,
-		"application/json",
-		statusCode: result.StatusCode);
-});
-
-app.MapPost("/api/reservations/{orderId:guid}/cancel", async (
-	Guid orderId,
-	HttpRequest httpRequest,
-	ReservationCancellationService service,
-	CancellationToken cancellationToken) =>
-{
-	if (!httpRequest.Headers.TryGetValue(
-			"Idempotency-Key", out var keyValues) ||
-		keyValues.Count != 1 ||
-		!Guid.TryParse(keyValues[0], out var requestKey) ||
-		requestKey == Guid.Empty)
-	{
-		return Results.BadRequest(new
-		{
-			error = "A valid Idempotency-Key UUID header is required."
-		});
-	}
-
-	var result = await service.CancelAsync(
-		orderId,
-		requestKey,
-		cancellationToken);
-
-	return Results.Content(
-		result.Json,
-		"application/json",
-		statusCode: result.StatusCode);
-});
-
-app.MapGet("/api/products", async (
-	ProductRepository repository,
-	CancellationToken cancellationToken) =>
-{
-	var products = await repository.GetAllAsync(cancellationToken);
-	return Results.Ok(products);
-});
-
-app.MapGet("/api/products/{id:guid}", async (
-	Guid id,
-	ProductRepository repository,
-	CancellationToken cancellationToken) =>
-{
-	var product = await repository.GetByIdAsync(
-		id, cancellationToken);
-
-	return product is null
-		? Results.NotFound()
-		: Results.Ok(product);
-});
-
-app.MapGet("/health/live", () => Results.Ok(new
-{
-	service = "ShelfSync.Api",
-	status = "alive",
-	timestamp = DateTimeOffset.UtcNow
-}));
-
-// Readiness: checks whether PostgreSQL is reachable and responding.
-app.MapGet("/health/ready", async (NpgsqlDataSource db) =>
-{
-	try
-	{
-		await using var connection = await db.OpenConnectionAsync();
-		await using var command = new NpgsqlCommand("SELECT 1;", connection);
-
-		var result = await command.ExecuteScalarAsync();
-
-		if (result is int value && value == 1)
-		{
-			return Results.Ok(new { status = "ready" });
-		}
-
-		return Results.Json(
-			new { status = "not_ready" },
-			statusCode: 503
-		);
-	}
-	catch (NpgsqlException)
-	{
-		return Results.Json(
-			new { status = "not_ready" },
-			statusCode: 503
-		);
-	}
-	catch (TimeoutException)
-	{
-		return Results.Json(
-			new { status = "not_ready" },
-			statusCode: 503
-		);
-	}
-});
-
-app.MapGet("/api/orders", async (OrderRepository repository, CancellationToken ct) => Results.Ok(await repository.GetRecentAsync(ct)));
-
-app.MapFallbackToFile("{*path:nonfile}", "index.html");
-app.MapGet("/api/products/{id:guid}/details", async (Guid id, ProductDetailsRepository repository, CancellationToken ct) => { var details = await repository.GetAsync(id, ct); return details is null ? Results.NotFound() : Results.Ok(details); });
-
-foreach (var action in new[] { "location", "stock-correction" })
-{
-    var correctStock = action == "stock-correction";
-    app.MapPost("/api/products/{id:guid}/" + action, async (Guid id, ItemUpdateRequest request, HttpContext context, ItemMaintenanceService service, CancellationToken ct) =>
-    {
-        if (!context.Request.Headers.TryGetValue("Idempotency-Key", out var keys) || keys.Count != 1 || !Guid.TryParse(keys[0], out var key) || key == Guid.Empty)
-            return Results.BadRequest(new { error = "A valid Idempotency-Key UUID header is required." });
-        var result = await service.UpdateAsync(id, key, request, context.User.Identity!.Name!, correctStock, ct);
-        return Results.Content(result.Json, "application/json", statusCode: result.StatusCode);
-    });
+    using var schema=new AccountsDbContext(new DbContextOptionsBuilder<AccountsDbContext>().UseNpgsql("Host=localhost;Database=unused").Options);
+    File.WriteAllText(args[1],schema.Database.GenerateCreateScript());return;
 }
+var connection=builder.Configuration.GetConnectionString("ShelfSync")??throw new InvalidOperationException("Configure ConnectionStrings:ShelfSync.");
+connection = ShelfSync.Api.DatabaseConnectionSettings.Normalize(connection);
+builder.Configuration["ConnectionStrings:ShelfSync"]=connection;
+builder.WebHost.ConfigureKestrel(options=>options.Limits.MaxRequestBodySize=64*1024);
+builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(connection));
+builder.Services.AddScoped<ProductRepository>();builder.Services.AddScoped<ProductDetailsRepository>();builder.Services.AddScoped<OrderRepository>();
+builder.Services.AddScoped<ItemMaintenanceService>();builder.Services.AddScoped<ReservationService>();builder.Services.AddScoped<ReservationCancellationService>();
+builder.Services.AddScoped<OrderPickingService>();builder.Services.AddScoped<OrderShortageService>();builder.Services.AddScoped<OrderShortageResolutionService>();
+builder.Services.AddScoped<OrderFulfillmentService>();builder.Services.AddScoped<PosSaleService>();
+builder.Services.AddSingleton<ReservationExpirationService>();builder.Services.AddHostedService<ReservationExpirationWorker>();
+builder.Services.AddScoped<TransactionalOperation>();builder.Services.AddScoped<StoreOperationsService>();builder.Services.AddScoped<CartReservationService>();builder.Services.AddScoped<StoreOperationsRepository>();
+builder.Services.AddHostedService<PaymentReconciliationWorker>();
+builder.Services.AddSingleton<PaymentSettings>();builder.Services.AddSingleton<IStripeGateway,StripeGateway>();builder.Services.AddScoped<PaymentService>();
+builder.AddHostedSecurity();builder.AddOperatorSecurity();builder.Services.AddProblemDetails();
+var app=builder.Build();
+if (builder.Configuration.GetValue<bool>("Hosting:Enabled"))
+{
+    app.UseForwardedHeaders();
+    app.UseHsts();
+}
+app.UseExceptionHandler();app.UseOperatorSecurity();
+if (!await ShelfSync.Api.DatabaseReadiness.CheckAsync(app.Services.GetRequiredService<NpgsqlDataSource>(), CancellationToken.None))
+    throw new InvalidOperationException("ShelfSync database schema is incomplete. Apply schema.sql only to a new database, then migrations 001 through 005 using a schema-owner account. See docs/setup.md. Startup never changes the schema.");
+await AccountBootstrap.InitializeAsync(app.Services,app.Configuration);
+app.MapBusinessEndpoints();app.MapPaymentEndpoints();
+app.MapGet("/health/live",()=>Results.Ok(new{service="ShelfSync.Api",status="alive",timestamp=DateTimeOffset.UtcNow})).AllowAnonymous();
+app.MapGet("/health/ready",async(NpgsqlDataSource db,CancellationToken ct)=>
+{
+    try{return await ShelfSync.Api.DatabaseReadiness.CheckAsync(db,ct)?Results.Ok(new{status="ready"}):Results.Json(new{status="not_ready"},statusCode:503);}
+    catch(Exception e)when(e is NpgsqlException or TimeoutException){return Results.Json(new{status="not_ready"},statusCode:503);}
+}).AllowAnonymous();
+app.MapFallback("/api/{**path}",()=>Results.NotFound()).RequireAuthorization();
+app.MapFallbackToFile("{*path:nonfile}","index.html").AllowAnonymous();
 app.Run();
 public partial class Program { }

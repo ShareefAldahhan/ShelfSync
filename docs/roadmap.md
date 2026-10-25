@@ -128,7 +128,9 @@ Required: stock correctness, idempotent mutations, shortage/quarantine flow, exp
 
 At 21 hours, cut: search/filtering, charts, configurable TTL UI, and elaborate styles. Keep a fixed demo TTL and basic tables. Browser test automation can be replaced by a recorded manual check if setup blocks it; document that limitation, while retaining database integration tests.
 
-Later: multi-item carts, multiple stores, authenticated roles, substitutions, payments/refunds, email/webhooks/outbox, mobile scanning, durable real POS integrations, optimization, production hosting, and load testing. Each needs its own scope and verification.
+Implemented local extension: multi-item carts, backroom receiving/replenishment, returns and picked cancellation, receipts, keyboard scanning, history pagination and email previews (see store-operations.md).
+
+Later: multiple stores, substitutions, payments/refunds, verified external email delivery/webhooks, camera scanning, durable real POS integrations, optimization, production hosting, and load testing. Each needs its own scope and verification.
 
 ## Responsibilities
 

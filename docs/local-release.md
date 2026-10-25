@@ -1,121 +1,54 @@
-# ShelfSync local release
+# ShelfSync 1.0.0 local release
 
-## Start
+This is the current release guide. [Earlier checkpoints](local-release-history.md) are historical and contain superseded behavior and test counts.
 
-Prerequisites: PowerShell 7, .NET 10 SDK, Node.js 24, PostgreSQL 18. An existing development database must contain `database/schema.sql` and optional fictional `database/seed.sql`. Do not reapply schema to an existing populated database.
+## Supported scope
 
-1. Configure `ConnectionStrings:ShelfSync` in .NET user secrets for `backend/ShelfSync.Api`. The connection is already configured on the original development machine. Use an application role with only required read/write permissions.
-2. Run `pwsh -File scripts/Set-Operator.ps1`. Choose a password with at least 12 characters. Only its ASP.NET Identity password hash is saved to user secrets; nothing is committed. Default username: `operator`.
-3. Run `pwsh -File scripts/Start-Local.ps1 -Build`.
-4. Open **http://localhost:5000** and sign in. The published backend serves the dashboard; a separate frontend process is unnecessary.
+A Windows local deployment with PostgreSQL 18, individual Customer/Associate/Manager/Admin accounts, inventory and associate workflows, checkout-first reservations, Stripe **test-only** hosted Checkout, paid receipts, and local email previews. Public signup creates Customers; Admin manages staff access. The configured operator is a protected recovery Admin.
 
-Normal restart: `pwsh -File scripts/Start-Local.ps1`. Rebuild after editing source. Stop with Ctrl+C. The script binds only to localhost and uses Development so local HTTP session cookies work. Production requires HTTPS.
+Real payments, external email, public hosting and multi-instance operation are not enabled by this release. An actual Stripe test payment was confirmed; direct signed-webhook delivery for that payment was not observed, and provider reconciliation confirmed it instead. See [payment evidence](test-report-2026-10-25.md) and [checkout behavior](checkout-first.md).
 
-## Demo (three minutes)
+## Produce a verified shipping package
 
-1. Inventory: reserve one unit of a product with stock. The returned receipt identifies the order and its expiry.
-2. Orders: pick, then fulfill. Shelf stock moves to picked, then leaves picked stock.
-3. Reserve another unit and cancel it. Repeat with report shortage and resolve shortage when stock permits.
-4. POS Sales: record one unit sold; inspect the refreshed shelf quantity.
-5. If a response is uncertain, use the displayed Retry action before reloading. The same request identifier is reused, preventing double stock changes. Unresolved requests are saved in browser session storage and survive search filtering and reloads in the same tab. Resolve them before closing the tab.
-
-Counts shown in Inventory are physical shelf/picked/buffer values, not calculated sellable availability. Every mutation rechecks stock under database locks. Orders shows the most recent 100 records. Expired reservations become EXPIRED via the background worker; invalid actions are also rejected by the backend.
-
-## Verification
+Install PowerShell 7, .NET 10 SDK, Node.js 24 and PostgreSQL 18 tools, then run from the source root:
 
 ```powershell
-npm --prefix frontend run build
-npm --prefix frontend run lint
-dotnet build tests/ShelfSync.Tests
-pwsh -File scripts/Verify-Http.ps1
-pwsh -File scripts/Verify-Http.ps1 -ProductionHttpChecks
-dotnet test tests/ShelfSync.Tests
+pwsh -File scripts/Ship-Local.ps1
 ```
 
-The HTTP verification runs a separate API on port 5088 with temporary generated operator credentials, checks access protection and real database reads, then stops it. It does not modify inventory.
+This creates a fresh versioned directory, runs the isolated release gate, checks dependency advisories, includes schema/migrations and documentation, verifies every packaged file, and creates a ZIP plus SHA-256 checksum under `artifacts/releases/`. No existing store database or running store process is modified. Credentials and backups are excluded. `release.json` records the version, Git revision, whether the source has uncommitted changes, required migrations and verified scope.
 
-Database integration tests require `SHELFSYNC_TEST_CONNECTION` to point to **shelfsync_test**, with schema already applied. Use a dedicated test owner account: the rollback failure-injection test creates/drops a trigger and needs table ownership. Never grant that permission to the production application role. The GitHub Actions job provisions its own disposable PostgreSQL database and runs the complete suite plus frontend checks and Docker build.
+The gate checks:
 
-## Security
+- Backend tests, frontend tests, build and lint.
+- All migrations applied twice to a disposable database.
+- Published login, CSRF, session rotation, roles, customer ownership, order/inventory workflows, account management and production HTTP rejection.
+- A database backup restored to another disposable database, with matching business/account data fingerprints.
+- Production dependency advisories and package integrity.
 
-All business API reads and writes require a signed operator session. Passwords are checked using ASP.NET Identity password hashing. Session cookies are HttpOnly, SameSite Strict, last four hours, and require Secure transport outside Development. Mutating requests require ASP.NET antiforgery tokens, including login/logout. Login allows five attempts per client address per minute. Health endpoints are intentionally anonymous. The browser receives no password hash or database credentials.
+The test cluster listens only on loopback and stops afterward. It has its own owner credentials; the store's application role needs no additional rights. Failed builds do not produce a verified archive. Diagnostic fixture data remains under ignored artifacts. Docker and remote CI execution are separate and are not claimed by a local pass.
 
-This MVP has one trusted operator role for the fictional store; it does not implement customer accounts, registration, password reset, MFA, or per-user order ownership. Each authenticated request revalidates the operator username, role, and credential fingerprint. Changing the configured password hash or username invalidates previous sessions on the next request after the running server loads the new configuration (restart after changing environment variables or local user secrets). Never expose the Development server on a public interface.
+## Install and start
 
-Implementation references: [cookie authentication](https://learn.microsoft.com/aspnet/core/security/authentication/cookie?view=aspnetcore-10.0), [antiforgery](https://learn.microsoft.com/aspnet/core/security/anti-request-forgery?view=aspnetcore-10.0), [rate limiting](https://learn.microsoft.com/aspnet/core/performance/rate-limit?view=aspnetcore-10.0).
+1. Verify the ZIP checksum against the separately supplied `.sha256`, then extract into a new folder. Retain the previous release for rollback.
+2. Follow [setup](setup.md): provision a dedicated PostgreSQL database and restricted application login; apply `schema.sql` only to a new database, then all migrations 001-005. Existing databases receive only missing additive migrations. Never recreate a populated database.
+3. Configure the database connection privately in .NET user secrets (ID `f1743222-090c-4111-8a6c-12e064007dba`) or the process environment. Run the included `scripts/Set-Operator.ps1` to choose the recovery Admin password. Configuration scripts require the .NET SDK; running the package requires only the ASP.NET Core 10 runtime and PowerShell 7.
+4. Optionally run `scripts/Set-Payments.ps1` with test credentials and arrange Stripe CLI forwarding to `/api/payments/stripe-webhook`. Checkout stays unavailable until configured. No external email is sent.
+5. Run `pwsh -File scripts/Start-Package.ps1` from the extracted folder. It verifies the file manifest before starting on `http://localhost:5000`. `-Port` can select another loopback port; update the Stripe base URL and forwarding accordingly.
+6. Confirm `/health/ready` returns ready, sign in, and inspect inventory and account access. Readiness checks required schema objects/columns, not only a database connection. Missing migrations fail startup with an actionable message; the application does not apply migrations automatically.
 
-## Deployment package
+For source development, `Start-Local.ps1 -Build` still rebuilds the working publish directory. A verified shipping archive is produced by `Ship-Local.ps1`, not merely by a successful compile.
 
-`scripts/Publish.ps1` produces `artifacts/publish/` with the API and compiled dashboard. `Dockerfile` builds the same application in stages and runs as a non-root user on port 8080. Docker is not installed on the original machine, so container execution is verified by CI when pushed, not claimed as locally verified.
+## Update, backup and rollback
 
-For future HTTPS hosting, supply `ConnectionStrings__ShelfSync`, `Operator__Username`, and `Operator__PasswordHash` from the host's secret manager. Do not put a raw password in configuration. Terminate TLS at a trusted reverse proxy, correctly configure trusted forwarded headers before enabling proxy-dependent behavior, persist ASP.NET data-protection keys outside disposable containers, set database backups, and limit database network access. No cloud hosting or paid resources are created for this local release.
+Before updating a store with data, stop accepting new work, stop the application, and take a PostgreSQL custom-format backup using an authorized backup account. For example, `pg_dump -W -h 127.0.0.1 -U <backup-user> -d shelfsync_dev -Fc -f <private-backup-path>` prompts privately. Keep backups outside releases/source control with restricted access. Retain the same Windows service/user profile and its ASP.NET Data Protection keys, plus privately managed application configuration. A database backup alone does not back up those keys or external Stripe records.
 
-## Scope decisions
+Rehearse restore into a separate, newly created database using `pg_restore --no-owner --no-acl --exit-on-error`, then validate row contents, account access and grants. The automated restore test exercises fictional fixtures; it does not prove a real store backup is recoverable. Provision the restricted runtime role/grants deliberately on the destination.
 
-The early design notes proposed external sales that could invalidate reservations, negative discrepancy counts, stale-feed gating, picked-order restocking, and reconciliation. The implemented MVP instead conservatively rejects POS sales that would consume reserved stock; its schema disallows negative inventory. Cancellation is for unexpired RESERVED orders. Those early proposals are future extensions, not implemented acceptance criteria. Current source and tests are authoritative.
+Extract each upgrade into a new directory and verify its manifest. Apply only reviewed migrations after backup, then start the new release and check readiness. Roll back binaries only when the schema is compatible; do not automatically reverse migrations or overwrite the active database. Keep unresolved payment attempts visible for reconciliation, and never treat a database restore as reversing a Stripe transaction.
 
-Known verification limit on the original machine: 41 of 42 database tests passed with the application-role test connection; the rollback trigger test requires a test-owner connection. The separate HTTP security checks pass. The CI database is owned by its test account and includes the required permissions.
+## Capacity and remaining public-launch work
 
-## Verified release checkpoint — 22 October 2026
+See the [measured benchmark](benchmark-results-2026-10-25.md): 274,265 requests, zero final-run errors, and all tested workloads under 500 ms p95 at 100 concurrent API workers. This is not a real-shopper or production capacity guarantee. The application shares one pool with a default maximum of 80 connections; set explicit per-instance budgets if deploying elsewhere.
 
-- Frontend dependency audit: zero reported vulnerabilities; production build and lint passed.
-- Backend and test projects compile without warnings.
-- Published dashboard responds correctly from the backend.
-- HTTP checks passed: anonymous access denied, CSRF rejection, operator login/session/logout, catalog/orders reads, missing idempotency-key rejection.
-- Published API exercised against a disposable product in `shelfsync_test`: reservation replay returns the same order; cancel; pick and fulfill; shortage and resolution; POS replay; final stock matches exactly one fulfillment plus one sale. Fixture rows and operation results were removed afterward.
-- Full database suite: 41 passed, one rollback-trigger test blocked by the local test account's table ownership permissions. This is an environment prerequisite, not recorded as a passing test. CI is configured with a test-owner database; that remote run has not been executed here.
-- Container execution was not run locally. Phase 7 browser verification is recorded below. The artifact is a local portfolio release, not a publicly hosted service.
-
-
-## Phase 7 browser checkpoint — 22 October 2026
-
-Verified against the running published app using temporary local test credentials: sign-in, catalog rendering, SKU search, reservation submission with pending button state, new order visibility, state filtering, cancellation, active-order summary update, order-ID search, POS missing-product validation, and no captured browser console errors. A 390 px responsive check found no page-wide horizontal overflow; wide tables scroll inside their containers.
-
-A demo reservation for SS-002 was created and cancelled during this check; its audit record remains in the development database. No stock was consumed by this reservation/cancellation exercise.
-
-Phase 7 refinements: order search/state filters; effective EXPIRED display before the background sweep; expired holds excluded from the active summary; pending reservation, order-action and POS operation identifiers saved in tab session storage before sending, preserving retries across filtering and reloads. Browser evidence is available locally at `artifacts/phase7-orders.png` (ignored by Git).
-
-POS stock mutation and remaining lifecycle actions were already verified against the published HTTP API at the previous checkpoint. Full visual automation of each lifecycle branch and deliberate browser network-disconnect testing have not been completed; do not interpret this checkpoint as that coverage.
-
-
-## Phase 8 — single-operator security checkpoint
-
-The local MVP uses one trusted Operator account; all business API routes require authentication and the Operator role. This is the agreed portfolio scope, not a multi-user customer account system.
-
-Implemented and verified: credential hashing; four-hour signed HttpOnly/SameSite session cookie; wrong-password denial; tampered-cookie denial; antiforgery on writes including login/logout; five login attempts per minute per direct client address; explicit operator-role checks; credential fingerprint revalidation on each authenticated request; old session denial after credential changes; production API rejection over plain HTTP; secure antiforgery cookies outside Development; no credential configuration values included in validation error messages. Startup checks the configured hash format before accepting traffic.
-
-Verification on 22 October 2026: backend/test build passed without warnings; frontend build and lint passed; expanded HTTP security checks passed; production HTTP checks passed. Temporary credential changes used only child-process environment variables and did not change saved operator credentials or inventory.
-
-HTTPS hosting, trusted proxy configuration and data-protection key persistence must be configured and verified on the actual hosting platform in Phase 9. Do not forge forwarded headers to bypass HTTPS enforcement. Local start remains loopback-only Development. Role separation, customer accounts, MFA, distributed login throttling and server-side per-session revocation are future extensions. Logout removes the current browser's cookie; credential rotation revokes all earlier cookies, including copies.
-
-## Phase 9 — verified local deployment
-
-Phase 9 is complete for the explicitly selected local deployment scope. No public host or paid resources were provisioned.
-
-Run the repeatable release gate from the repository root:
-
-```powershell
-pwsh -File scripts/Verify-Release.ps1
-```
-
-This builds the release, initializes a separate password-protected PostgreSQL 18 cluster under ignored `artifacts/verification-*`, binds it only to 127.0.0.1:55439, creates `shelfsync_test` with its own table-owning test role, applies the schema, runs all 42 integration tests, exercises the published lifecycle and POS routes with a fictional fixture, runs security checks and production HTTP rejection, and runs frontend lint. It stops that cluster and restores connection environment variables in `finally`. Your existing PostgreSQL service, databases, and permissions are not changed. Bootstrap password files are removed after initialization. Stopped test data/logs remain under ignored artifacts for diagnostics. Use `-PostgresBin` or `-Port` for a different local PostgreSQL installation or unused port; use `-SkipPublish` only when a current publish package already exists.
-
-Verified on 22 October 2026: **42 passed, zero failed, zero skipped**, plus published reservation/replay/cancel, pick/fulfill, shortage/resolve/cancel, POS/replay, final stock invariants, wrong-password rejection, tampered-session rejection, CSRF, login throttling, logout, credential-rotation invalidation, production HTTP rejection and lint. This resolves the earlier 41/42 local-account ownership limitation without granting extra application permissions.
-
-Create a distributable package:
-
-```powershell
-pwsh -File scripts/Publish.ps1 -Archive
-```
-
-Outputs: `artifacts/publish/`, `artifacts/publish.zip`, and `artifacts/publish.zip.sha256`. `release.json` records source revision, local-change status and UTC build time. The ZIP includes the compiled dashboard and backend, not database passwords or operator credentials. Install .NET 10 runtime and configure the database/operator secrets on the destination machine. For the original machine use `scripts/Set-Operator.ps1` once, then `scripts/Start-Local.ps1`.
-
-The supplied Dockerfile and CI workflow remain available for future hosting; Docker execution and remote CI were not run locally. Public HTTPS/proxy configuration remains deferred because public hosting is outside the selected scope. Phase 10 portfolio polish is separate.
-
-## Phase 10 — documentation and portfolio handoff
-
-The README now presents the implemented local MVP with a verified dashboard screenshot, setup/startup commands, architecture overview, verification evidence and explicit scope. Current setup, architecture, API and acceptance documents replace contradictory draft claims. Older design/learning documents remain preserved and clearly marked historical.
-
-`docs/portfolio.md` supplies a three-minute demo script, project description, interview prompts and honest claim boundaries. `docs/package-readme.md` is copied into the distributable so an extracted package has its own startup instructions. Local documentation links and screenshot targets were checked. A recorded video, public hosting, remote CI execution and the later comprehensive teaching course are not claimed as delivered.
-
-The selected local functional MVP and its release/documentation work are complete. Source changes are committed locally. Publishing/pushing to an external destination remains a separate action.
+Public launch additionally requires a chosen host, HTTPS and trusted proxy verification, persistent protected data-protection keys, monitoring/alerts, tested real backups, production mail delivery, live-payment onboarding and a separate security/operational review. No public deployment, live charges, remote CI pass, or Docker runtime validation is claimed here.

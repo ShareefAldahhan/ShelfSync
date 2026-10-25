@@ -7,9 +7,11 @@ $cluster = Join-Path $root ('artifacts/verification-' + [guid]::NewGuid().ToStri
 $priorTest = $env:SHELFSYNC_TEST_CONNECTION
 $priorConnection = $env:ConnectionStrings__ShelfSync
 $priorPassword = $env:PGPASSWORD
+$priorPayments=$env:Stripe__Enabled
+$env:Stripe__Enabled='false'
 try {
     if (!$SkipPublish) { & (Join-Path $PSScriptRoot 'Publish.ps1') -Output $PublishDirectory }
-    foreach ($tool in @('initdb','pg_ctl','psql')) {
+    foreach ($tool in @('initdb','pg_ctl','psql','pg_dump','pg_restore','createdb')) {
         if (!(Test-Path (Join-Path $PostgresBin "$tool.exe"))) { throw "PostgreSQL tool missing: $tool" }
     }
     New-Item -ItemType Directory -Force $cluster | Out-Null
@@ -29,10 +31,13 @@ try {
     if ($LASTEXITCODE) { throw 'Test database creation failed.' }
     & "$PostgresBin/psql.exe" -w -h 127.0.0.1 -p $Port -U shelfsync_test -d shelfsync_test -v ON_ERROR_STOP=1 -f database/schema.sql | Out-Null
     if ($LASTEXITCODE) { throw 'Test schema installation failed.' }
-    foreach ($migration in Get-ChildItem database/migrations/*.sql | Sort-Object Name) {
-        & "$PostgresBin/psql.exe" -w -h 127.0.0.1 -p $Port -U shelfsync_test -d shelfsync_test -v ON_ERROR_STOP=1 -f $migration.FullName | Out-Null
-        if ($LASTEXITCODE) { throw 'Test migration failed.' }
+    foreach ($migrationPass in 1..2) {
+        foreach ($migration in Get-ChildItem database/migrations/*.sql | Sort-Object Name) {
+            & "$PostgresBin/psql.exe" -w -h 127.0.0.1 -p $Port -U shelfsync_test -d shelfsync_test -v ON_ERROR_STOP=1 -f $migration.FullName | Out-Null
+            if ($LASTEXITCODE) { throw "Test migration failed on pass $migrationPass." }
+        }
     }
+    Write-Output 'PASS: additive migrations apply successfully and can be reapplied.'
     $env:SHELFSYNC_TEST_CONNECTION = "Host=127.0.0.1;Port=$Port;Database=shelfsync_test;Username=shelfsync_test;Password=$password"
     dotnet test tests/ShelfSync.Tests -c Release --logger 'console;verbosity=minimal'
     if ($LASTEXITCODE) { throw 'Database tests failed.' }
@@ -46,6 +51,33 @@ try {
     $env:SHELFSYNC_SMOKE_PRODUCT = $null
     & (Join-Path $PSScriptRoot 'Verify-Http.ps1') -Published -ProductionHttpChecks -PublishDirectory $PublishDirectory
     if ($LASTEXITCODE) { throw 'Production transport verification failed.' }
+    & (Join-Path $PSScriptRoot 'Verify-Access.ps1') -PublishDirectory $PublishDirectory
+    if ($LASTEXITCODE) { throw 'Role and account verification failed.' }
+    # Exercise recovery only on this disposable cluster, never the store database.
+    $backup=Join-Path $cluster 'restore-check.dump'
+    & "$PostgresBin/pg_dump.exe" -w -h 127.0.0.1 -p $Port -U shelfsync_test -d shelfsync_test -Fc -f $backup
+    if($LASTEXITCODE){throw 'Isolated backup failed.'}
+    & "$PostgresBin/createdb.exe" -w -h 127.0.0.1 -p $Port -U shelfsync_test shelfsync_restore_check
+    if($LASTEXITCODE){throw 'Restore-check database creation failed.'}
+    & "$PostgresBin/pg_restore.exe" -w -h 127.0.0.1 -p $Port -U shelfsync_test -d shelfsync_restore_check --no-owner --no-acl --exit-on-error $backup
+    if($LASTEXITCODE){throw 'Isolated restore failed.'}
+    $fingerprint=@'
+SELECT md5(jsonb_build_object(
+ 'products',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM products t),
+ 'inventory',(SELECT jsonb_agg(to_jsonb(t) ORDER BY product_id) FROM inventory t),
+ 'orders',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM orders t),
+ 'payments',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM payments t),
+ 'users',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "Id") FROM app_users t),
+ 'links',(SELECT jsonb_agg(to_jsonb(t) ORDER BY payment_id,order_id) FROM payment_orders t)
+)::text);
+'@
+    $sourceFingerprint=& "$PostgresBin/psql.exe" -X -w -h 127.0.0.1 -p $Port -U shelfsync_test -d shelfsync_test -v ON_ERROR_STOP=1 -At -c $fingerprint
+    if($LASTEXITCODE){throw 'Backup fingerprint failed.'}
+    $restoredFingerprint=& "$PostgresBin/psql.exe" -X -w -h 127.0.0.1 -p $Port -U shelfsync_test -d shelfsync_restore_check -v ON_ERROR_STOP=1 -At -c $fingerprint
+    if($LASTEXITCODE -or !$sourceFingerprint -or $sourceFingerprint -ne $restoredFingerprint){throw 'Restored business/account data differs from the source.'}
+    Write-Output 'PASS: isolated backup/restore preserves products, inventory, orders, accounts, payments and payment links.'
+    npm --prefix frontend test
+    if ($LASTEXITCODE) { throw 'Frontend checkout tests failed.' }
     npm --prefix frontend run lint
     if ($LASTEXITCODE) { throw 'Frontend lint failed.' }
     Write-Output 'PASS: complete isolated database suite, published workflows, security checks, production HTTP rejection, and lint.'
@@ -64,6 +96,7 @@ try {
     $env:SHELFSYNC_TEST_CONNECTION=$priorTest
     $env:ConnectionStrings__ShelfSync=$priorConnection
     $env:PGPASSWORD=$priorPassword
+    $env:Stripe__Enabled=$priorPayments
     $env:SHELFSYNC_SMOKE_PRODUCT=$null
     if ($Preview) { $env:Operator__PasswordHash=$null;$env:Operator__Username=$null;$env:ASPNETCORE_ENVIRONMENT=$null }
     Pop-Location

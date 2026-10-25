@@ -1,3 +1,4 @@
+using ShelfSync.Api.Payments;
 ﻿
 using System.Security.Cryptography;
 using System.Text;
@@ -6,7 +7,7 @@ using Npgsql;
 
 namespace ShelfSync.Api.Services;
 
-public sealed class OrderFulfillmentService(NpgsqlDataSource db)
+public sealed class OrderFulfillmentService(NpgsqlDataSource db, IConfiguration? configuration = null)
 {
 	public async Task<ReservationResult> FulfillAsync(
 		Guid orderId,
@@ -126,6 +127,8 @@ public sealed class OrderFulfillmentService(NpgsqlDataSource db)
 			quantity = reader.GetInt32(1);
 		}
 
+        var paymentError=await PaymentGuard.FulfillmentError(connection,transaction,orderId,configuration?.GetValue<bool>("Stripe:Enabled")==true,ct);
+        if(paymentError is not null)return Error(409,paymentError);
 		if (state != "PICKED")
 		{
 			var invalid = Error(409, "Only PICKED orders can be fulfilled.");

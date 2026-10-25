@@ -1,6 +1,6 @@
 # Associate item details
 
-Click a product image or title in the storefront to open `#product/<uuid>`. Links survive browser reloads and support browser back/forward. The view remains protected by the existing Operator session.
+Click a product image or title in the storefront to open `#product/<uuid>`. Links survive browser reloads and support browser back/forward. The associate view requires Associate, Manager or Admin. Customers receive a simpler product/reservation page. Shelf corrections require Manager or Admin; location edits permit all staff.
 
 The page shows a scannable internal Code 128 barcode, SKU and product ID; current retail price; aisle/bay/shelf/bin; total on-hand, shelf, picked, active reserved, safety buffer and available quantities; quarantine status/reason; last inventory update and snapshot time; case pack, supplier, brand and reorder threshold when recorded; a reservation action; POS sales history; and the inventory/order activity ledger.
 

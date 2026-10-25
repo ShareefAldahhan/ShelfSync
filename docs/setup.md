@@ -20,7 +20,7 @@ The backend reads `ConnectionStrings:ShelfSync` from .NET user secrets in Develo
 
 Run `pwsh -File scripts/Set-Operator.ps1` to set the operator username/password hash in local user secrets. It prompts for the password without echoing it and requires at least 12 characters. `-Username <name>` changes the default `operator` name.
 
-No database schema migration runs automatically at API startup. A missing or unavailable database should be diagnosed through `/health/ready` and local logs, not repaired by blindly recreating it.
+No database schema migration runs automatically at API startup. Startup rejects a missing required schema with an actionable message. `/health/ready` also checks required tables, views and columns. Diagnose failures through local logs; never repair them by blindly recreating a populated database.
 
 ## Startup
 
@@ -39,7 +39,7 @@ For an independently maintained test database, set `SHELFSYNC_TEST_CONNECTION` p
 | Symptom | Check |
 | --- | --- |
 | Startup reports missing operator hash | Run Set-Operator.ps1 for this backend project; restart |
-| Sign-in fails | Check configured username; wait one minute after repeated attempts |
+| Sign-in fails | Check configured username; account lockout lasts 15 minutes after five failed passwords; the IP limit resets after one minute |
 | Readiness returns 503 | Check PostgreSQL service, host, credentials and schema |
 | API rejects HTTP outside Development | Use the loopback startup script locally; production needs HTTPS |
 | Port already used | Stop the instance using that port, or choose a different test port |
@@ -51,3 +51,15 @@ For an independently maintained test database, set `SHELFSYNC_TEST_CONNECTION` p
 After creating a fresh database with schema.sql, apply SQL files from database/migrations in filename order, then optionally seed fictional products. For existing databases, apply migrations using a schema-owner session; do not rerun schema.sql. The product-profile migration also seeds locations for existing SS products. Grant the app SELECT on product_profiles after applying that migration; it does not need ownership. See associate-details.md for the approval-based local helper and rollout steps.
 
 For operator location editing, run the approved local helper with `-EnableProfileEditing` to additionally grant INSERT/UPDATE on product_profiles. This grant was explicitly approved and applied on the original development machine. Stock corrections use existing inventory/ledger/operation permissions. Never grant the application schema ownership or administrator access for this feature.
+
+
+Individual accounts require migration `002_accounts.sql` and the table/sequence grants described in [accounts and access](accounts.md). Run the approved local helper with `-EnableAccounts -EnableProfileEditing`. This is an explicit administrator step, never an automatic startup migration.
+
+
+Stockroom/cart/local-preview features require migration 003 and the `-EnableStoreOperations` flag on the explicitly approved migration helper. See [store operations](store-operations.md).
+
+## Shipping package
+
+The current release requires every migration through `005_checkout_first.sql` and its restricted grants, including payments and checkout links even when Stripe is disabled. See [payments](payments.md) and [checkout-first](checkout-first.md). `Set-Operator.ps1` and `Set-Payments.ps1` work from an extracted package using the fixed user-secrets ID; they do not require the source project directory. They still require the .NET SDK.
+
+For an extracted verified release, use `scripts/Start-Package.ps1`, which checks package integrity. See [the release guide](local-release.md) for backup, restore, upgrade and rollback procedures.

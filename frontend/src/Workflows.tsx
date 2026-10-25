@@ -1,3 +1,4 @@
+import { isStaff, isManagement } from './session'
 import { usePendingOperation } from './usePendingOperation'
 import { useEffect, useRef, useState } from 'react'
 import { mutate } from './api'
@@ -11,7 +12,7 @@ export function OrderActions({ order, changed }: { order: Order; changed: () => 
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer) }, [])
   const expired = Date.parse(order.expiresAt) <= now
-  const actions = order.state === 'RESERVED' && !expired ? ['cancel', 'pick', 'shortage'] : order.state === 'PICKED' ? ['fulfill'] : order.state === 'SHORTAGE_PENDING' ? ['resolve-shortage'] : []
+  const actions = order.state === 'RESERVED' && !expired ? (isStaff()?((isManagement()||order.customerReservation===true)&&order.canPick!==false?[...(order.paymentState?[]:(order.paymentState?[]:['cancel'])), 'pick', 'shortage']:order.paymentState?[]:['cancel','shortage']):(order.paymentState?[]:['cancel'])) : order.state === 'PICKED' && isStaff() ? ['fulfill'] : order.state === 'SHORTAGE_PENDING' && isManagement() ? ['resolve-shortage'] : []
   async function submit(action: string) {
     if (busy.current) return
     const op = retry ?? { key: crypto.randomUUID(), url: action === 'cancel' ? `/api/reservations/${order.id}/cancel` : `/api/orders/${order.id}/${action}` }
@@ -26,7 +27,7 @@ export function OrderActions({ order, changed }: { order: Order; changed: () => 
       setRetry(op); setMessage('Result uncertain. Retry the same action before continuing.')
     } finally { busy.current = false; setPending(false) }
   }
-  return <><div className="action-row">{retry ? <button disabled={pending} onClick={() => void submit('')}>Retry action</button> : actions.map(action => <button disabled={pending} key={action} onClick={() => void submit(action)}>{action.replaceAll('-', ' ')}</button>)}</div><div role="status">{message}</div></>
+  return <><div className="action-row">{retry ? <button disabled={pending} onClick={() => void submit('')}>Retry action</button> : actions.map(action => <button disabled={pending} key={action} onClick={() => void submit(action)}>{action.replaceAll('-', ' ')}</button>)}</div><div role="status">{message}</div>{isStaff()&&!isManagement()&&order.state==='RESERVED'&&!expired&&!order.customerReservation&&<small>Not a customer reservation · picking unavailable.</small>}</>
 }
 
 export function PosForm({ products, changed }: { products: Product[]; changed: () => void }) {

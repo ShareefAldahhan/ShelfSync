@@ -63,12 +63,12 @@ RESTOCK_PENDING exists in the schema but has no implemented transition route. Do
 
 ## Security and boundaries
 
-The single Operator role can access all business operations. Health endpoints are anonymous. Cookies are signed, HttpOnly and SameSite Strict; mutating requests require antiforgery tokens. Operator credentials are hashed. A credential fingerprint in signed sessions is checked against current configuration. Production API requests require HTTPS. Deployment-specific trusted proxies and durable key storage must be configured separately.
+ASP.NET Core Identity stores individual accounts in a dedicated EF Core context. Explicit Customer, Staff, Management and Admin policies protect endpoints; stock services retain direct Npgsql transactions. Customers see and cancel only their own orders. See [accounts and access](accounts.md) for the role matrix. Health endpoints are anonymous. Cookies are signed, HttpOnly and SameSite Strict; mutating requests require antiforgery tokens. Operator credentials are hashed. User enabled status, lockout and security stamp are checked on each authenticated request. Production API requests require HTTPS. Deployment-specific trusted proxies and durable key storage must be configured separately.
 
 The UI is an operational client; hiding an action is not authorization. The backend checks every operation. Direct database writes outside these services can violate application-level allocation invariants even when simple table constraints still pass.
 
 ## Chosen tradeoffs
 
-Direct Npgsql SQL keeps locks and transaction boundaries visible. One store and single-item orders keep the concurrency problem focused. The latest-100 read model keeps the UI simple; pagination is future work. HTTP refresh after mutations avoids WebSocket infrastructure. The local single-operator model avoids inventing customer ownership rules.
+Direct Npgsql SQL keeps locks and transaction boundaries visible. One store and single-item orders keep the concurrency problem focused. The latest-100 read model keeps the UI simple; pagination is future work. HTTP refresh after mutations avoids WebSocket infrastructure. Nullable customer ownership keeps legacy staff orders separate from customer-owned orders.
 
 Conservative POS validation is appropriate for this simulated software-controlled sale flow. It does not reconcile real external till events that have already happened. Backroom allocation, external-feed outages, physical discrepancies, receiving and restocking require separate policies before implementation.

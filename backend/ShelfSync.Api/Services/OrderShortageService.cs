@@ -1,3 +1,4 @@
+using ShelfSync.Api.Payments;
 ﻿
 using System.Security.Cryptography;
 using System.Text;
@@ -128,6 +129,8 @@ public sealed class OrderShortageService(NpgsqlDataSource db)
 			decisionTime = (DateTime)(await clock.ExecuteScalarAsync(ct))!;
 		}
 
+        var paymentError=await PaymentGuard.FulfillmentError(connection,transaction,orderId,false,ct);
+        if(paymentError is not null)return Error(409,"Payment must be confirmed before shortage handling.");
 		if (state != "RESERVED" || expiresAt <= decisionTime)
 		{
 			var conflict = Error(409, "Order is not eligible for shortage reporting.");

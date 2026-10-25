@@ -193,6 +193,9 @@ public sealed class OrderShortageResolutionService(NpgsqlDataSource db)
 
 		// Restore the reservation with a new 15-minute deadline.
 		var newExpiry = decisionTime.AddMinutes(15);
+        await using(var payment=new NpgsqlCommand("SELECT EXISTS(SELECT 1 FROM order_payment_status WHERE linked_order_id=$1 AND state='PAID')",connection,transaction))
+        {payment.Parameters.AddWithValue(orderId);if((bool)(await payment.ExecuteScalarAsync(ct))!)newExpiry=DateTime.SpecifyKind(DateTime.MaxValue,DateTimeKind.Utc);}
+
 
 		await using (var update = new NpgsqlCommand("""
             UPDATE orders

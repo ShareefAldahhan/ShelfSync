@@ -1,47 +1,52 @@
-# Portfolio and demo guide
+# ShelfSync: portfolio and interview guide
 
-## Project description
+## Positioning
 
-ShelfSync is an inventory reservation and fulfillment application built with ASP.NET Core, PostgreSQL, Npgsql and React. It coordinates online reservations and simulated store sales using transactional row locking, explicit order states, idempotent requests and an inventory audit ledger. Its local release includes operator authentication, protected mutation routes and an isolated verification runner with 42 passing integration tests.
+ShelfSync is a full-stack store operations and pickup application built with .NET 10, React/TypeScript, PostgreSQL and Stripe test Checkout. Its strongest engineering story is keeping inventory and payment state consistent through concurrent requests, lost responses, payment delays and retries. It includes four server-enforced account roles, customer-owned orders, associate workflows, an audit trail and a verified local release pipeline.
 
-## Three-minute walkthrough
+This is a portfolio/demo system with fictional products, not a claim of real customers or production retail usage. Public hosting is being prepared; no live URL is claimed until deployment is verified.
 
-| Time | Show and explain |
-| --- | --- |
-| 0:00–0:25 | Sign in. Explain one store, shelf stock, picked stock and logical reservation holds. |
-| 0:25–1:00 | Search a stocked product, reserve one unit, show receipt and Orders entry. |
-| 1:00–1:35 | Pick then fulfill. Explain the movement shelf to picked to fulfilled. |
-| 1:35–2:00 | Reserve another unit, cancel it and filter for CANCELLED. |
-| 2:00–2:25 | Record a POS sale and inspect the shelf count. Explain event-ID replay protection. |
-| 2:25–3:00 | Show the verification command/result and explain one concurrency invariant and one limitation. |
+## Resume-ready project entry
 
-Use fictional stocked products. Picking/fulfilling and POS sales consume stock; use a disposable test database or deliberately prepared demo stock for recording repeated takes. A reservation/cancellation demonstration preserves shelf stock. Do not reset the user's database to make a demo look clean.
+**ShelfSync | .NET 10, React, TypeScript, PostgreSQL, Stripe, Docker**
 
-A screenshot is included at `docs/images/orders.png`. A video recording is not included; this guide provides the recording script without claiming that a video was produced.
+Choose three bullets to fit the resume:
 
-## Engineering discussion prompts
+- Engineered an inventory and pickup platform with transactional row locking, idempotent operations and audit trails to protect stock across concurrent reservations, POS sales and order fulfillment.
+- Implemented four-role authorization, customer-owned orders, CSRF protection and Stripe sandbox checkout with server-calculated totals, signed-webhook verification and payment reconciliation before associate picking.
+- Diagnosed PostgreSQL connection exhaustion under load and consolidated connection pools; verified zero errors across 274,265 requests, including approximately 3,700 API requests/sec in a local browsing benchmark with 200 concurrent workers.
+- Built a repeatable release gate with 120+ backend tests, frontend checks, published API permission tests, migration replay, backup/restore verification and checksummed deployment artifacts.
 
-- Why lock an inventory row before deciding availability? Trace two concurrent attempts at the final unit.
-- Why does picking change stock buckets while reservation does not?
-- What if a commit succeeds but its HTTP response is lost?
-- Why must replay payloads be compared, not only request keys?
-- What happens if the expiry worker stops temporarily?
-- Why use a dedicated test-owner database for trigger-based failure injection?
-- Which invariants are enforced by SQL constraints, and which depend on transaction conventions?
-- What does this software model fail to know about physical shoppers and shelf movement?
+Use the actual repository and verified demo URL as links once published. Do not describe the local load test as production throughput, 200 real shoppers, or an SLA. Docker configuration exists; container runtime validation and remote CI results must be verified separately before claiming them.
 
-## Honest claims
+## Five-minute recruiter walkthrough
 
-Say: implemented and tested transactional reservations, lifecycle operations, POS deduplication, operator security and a local release pipeline. Say: 42 integration tests passed in the verified local environment. Explain that POS is a controlled simulator, not a live retail integration.
+| Time | Demonstration | Engineering point |
+|---|---|---|
+| 0:00-0:30 | Show the storefront and explain the customer/associate problem | A clear product and domain model |
+| 0:30-1:30 | Customer adds items, checks out with Stripe test details and views confirmation/receipt | Server-owned totals and payment-confirmed workflow |
+| 1:30-2:15 | In a separate prepared associate session, inspect barcode/bin and pick the paid customer order | Server-enforced roles and operational UI |
+| 2:15-3:00 | Show stock movement and audit history | Traceability and transaction boundaries |
+| 3:00-4:00 | Show the benchmark table and explain the connection-pool failure/fix | Measured diagnosis rather than guessed scalability |
+| 4:00-5:00 | Show test/release evidence and one architecture diagram | Reproducibility, recovery and honest limitations |
 
-Do not claim production deployment, real customers, measured throughput/latency, zero possible overselling in all physical scenarios, cloud CI success, Docker execution, or complete automated browser coverage. No benchmark was run. Authentication is a single-operator model, not a customer identity platform.
+Use a separate demo database. Do not publish Admin credentials or give public visitors management privileges. Use test payment details only; do not enter a real card. For a public demo, visitors can create Customer accounts; demonstrate staff operations in a recorded walkthrough or a controlled session. A recording is not included yet.
 
-## Repository presentation
+## Interview deep dives
 
-Pin the repository on your profile if you choose. The README links to setup, architecture, API, release verification and this demo guide. The release package and checksum are generated under ignored artifacts; publish them as a release only after you explicitly choose to share them. Git commits are local unless pushed separately.
+1. Trace two requests racing for the final unit. Explain the inventory row lock, availability recheck and transaction commit.
+2. Explain why reservation state and payment state are separate, and why paid orders can still be RESERVED before picking.
+3. Explain the unknown-result case: commit succeeds but the response is lost. Show the saved idempotency key and payload-conflict checks.
+4. Explain checkout safety holds and why provider-confirmed expiry is required before releasing stock.
+5. Walk through the connection-pool failure: independent pools exceeded PostgreSQL capacity; a shared bounded pool fixed request errors, and a configuration regression test protects maintenance headroom.
+6. Explain the trusted reverse-proxy boundary and why accepting arbitrary forwarded HTTPS/client-IP headers is unsafe.
+7. Describe what the restore test proves and what it does not: fixture data round-trips, while real operational backups and external payment records need a separate recovery plan.
 
-## Learning continuation
+## Evidence
 
-The implementation is ready for the requested beginner walkthrough. Suggested order: HTTP/JSON and frontend/backend boundaries; C# syntax and async; dependency injection; PostgreSQL schema/constraints; Npgsql queries; request-by-request reservation trace; transactions and locks; idempotency and failure recovery; lifecycle/expiry; testing strategy; authentication; deployment and tradeoffs.
+- [Benchmark results](benchmark-results-2026-10-25.md): workload, machine, concurrency, p95/p99, error counts and limitations.
+- [Shipping verification](shipping-report-2026-10-25.md): local release tests and checks.
+- [Architecture](architecture.md), [API contract](api-contract.md), [checkout state model](checkout-first.md).
+- [Public deployment preparation](public-deployment.md): configuration and outstanding launch decisions.
 
-Use the actual files listed in architecture.md and trace a real request before introducing alternatives. Work through one manageable lesson at a time with exercises and comprehension checks. The existing lesson-01.md is historical learning material; a comprehensive line-by-line course is a separate teaching phase, not claimed as completed documentation here.
+The earlier Stripe test payment was confirmed through provider reconciliation. Real SDK signature tests pass, but successful delivery of that payment's signed webhook was not observed. Demonstrate an actual hosted webhook before claiming that complete path has been verified publicly.

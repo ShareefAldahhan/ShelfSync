@@ -6,6 +6,7 @@ namespace ShelfSync.Tests;
 internal sealed class PostgresTestScope : IAsyncDisposable
 {
     private readonly List<Guid> requestKeys = [];
+    private readonly List<Guid> ownedUsers = [];
     private string? failureObjectName;
 
     private PostgresTestScope(NpgsqlDataSource db)
@@ -81,6 +82,17 @@ internal sealed class PostgresTestScope : IAsyncDisposable
         }
     }
 
+    public async Task<Guid> NewAccountAsync()
+    {
+        var id=Guid.NewGuid();
+        await using var connection=await Db.OpenConnectionAsync();
+        await using var command=new NpgsqlCommand("""
+            INSERT INTO app_users("Id","UserName","NormalizedUserName","Enabled","IsBootstrap","CreatedAt","EmailConfirmed","PhoneNumberConfirmed","TwoFactorEnabled","LockoutEnabled","AccessFailedCount","SecurityStamp","ConcurrencyStamp")
+            VALUES($1,$2,$2,true,false,CURRENT_TIMESTAMP,false,false,false,false,0,$3,$3)
+            """,connection);
+        command.Parameters.AddWithValue(id);command.Parameters.AddWithValue("TEST-"+id.ToString("N"));command.Parameters.AddWithValue(Guid.NewGuid().ToString());
+        await command.ExecuteNonQueryAsync();ownedUsers.Add(id);return id;
+    }
     public Guid NewRequestKey()
     {
         var key = Guid.NewGuid();
@@ -144,14 +156,18 @@ internal sealed class PostgresTestScope : IAsyncDisposable
             await using var transaction = await connection.BeginTransactionAsync();
             await using (var keys = new NpgsqlCommand("""
                 DELETE FROM operation_requests
-                WHERE operation IN ('RESERVE', 'CANCEL', 'PICK', 'SHORTAGE', 'RESOLVE_SHORTAGE', 'FULFILL', 'LOCATION_UPDATE', 'INVENTORY_CORRECTION')
-                  AND request_key = ANY($1);
+                WHERE request_key = ANY($1);
                 """, connection, transaction))
             {
                 keys.Parameters.AddWithValue(requestKeys.ToArray());
                 await keys.ExecuteNonQueryAsync();
             }
 
+            // Match production inventory-before-order lock ordering during concurrent expiry sweeps.
+            await using(var inventoryLock=new NpgsqlCommand("SELECT product_id FROM inventory WHERE product_id=$1 FOR UPDATE",connection,transaction))
+            {inventoryLock.Parameters.AddWithValue(ProductId);await inventoryLock.ExecuteScalarAsync();}
+            await using(var orderLocks=new NpgsqlCommand("SELECT id FROM orders WHERE product_id=$1 ORDER BY id FOR UPDATE",connection,transaction))
+            {orderLocks.Parameters.AddWithValue(ProductId);await using var r=await orderLocks.ExecuteReaderAsync();while(await r.ReadAsync()){} }
             // Audit events reference orders/POS events; both reference the product.
             string[] statements =
             [
@@ -169,6 +185,8 @@ internal sealed class PostgresTestScope : IAsyncDisposable
                 await command.ExecuteNonQueryAsync();
             }
 
+            await using (var users = new NpgsqlCommand("DELETE FROM app_users WHERE \"Id\" = ANY($1)", connection, transaction))
+            { users.Parameters.AddWithValue(ownedUsers.ToArray()); await users.ExecuteNonQueryAsync(); }
             await transaction.CommitAsync();
         }
         finally
