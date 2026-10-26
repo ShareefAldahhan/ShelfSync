@@ -82,6 +82,7 @@ public static class DemoMain
         }
         Console.WriteLine($"DEMO_READY {origin}");
         using var stop = new CancellationTokenSource();
+        using var shutdown = factory.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping.Register(stop.Cancel);
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
         try { await Task.Delay(Timeout.Infinite, stop.Token); } catch (OperationCanceledException) { }
     }

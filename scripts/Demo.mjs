@@ -120,6 +120,7 @@ try {
   if (server && server.exitCode === null) {
     const exited = new Promise(resolvePromise => server.once('exit', resolvePromise))
     server.kill(); await Promise.race([exited, delay(5000)])
+    if (server.exitCode === null) { server.kill('SIGKILL'); await exited }
   }
   closeSync(log)
   if (databaseStarted) command(pgTool('pg_ctl'), ['-D', join(run, 'data'), '-m', 'fast', '-w', '-t', '30', 'stop'])
