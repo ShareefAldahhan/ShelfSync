@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -53,6 +54,7 @@ public static class DemoMain
             {
                 services.RemoveAll<IStripeGateway>();
                 services.AddSingleton<IStripeGateway>(gateway);
+                services.AddDataProtection().UseEphemeralDataProtectionProvider();
                 services.AddSingleton<IStartupFilter>(new DemoRoutes(gateway, origin, webhookSecret));
             });
         });

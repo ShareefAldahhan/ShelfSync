@@ -27,7 +27,7 @@ The demo banner and checkout page explicitly identify simulated payments. No Str
 
 The simulator is in `tools/ShelfSync.DemoHost`, which is not a dependency of the production API and is not copied into its Docker image or release package. The actual API still accepts only Stripe test sessions. The demo frontend permits a same-origin simulated checkout URL only after detecting the demo host and matching its exact route format. Tests cover that redirect boundary.
 
-The application checks the requested demo database identity before bootstrap and the host checks the connected database/user/port before seeding accounts. A mismatched store connection fails startup. The demo host binds only to 127.0.0.1.
+The application checks the requested demo database identity before bootstrap and the host checks the connected database/user/port before seeding accounts. A mismatched store connection fails startup. The demo host binds only to 127.0.0.1. Its session-protection keys stay in memory and are discarded when it stops.
 
 ## Automated browser tests
 
