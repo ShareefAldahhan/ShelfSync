@@ -15,6 +15,8 @@ if(args.Length==2&&args[0]=="--export-accounts-schema")
 }
 var connection=builder.Configuration.GetConnectionString("ShelfSync")??throw new InvalidOperationException("Configure ConnectionStrings:ShelfSync.");
 connection = ShelfSync.Api.DatabaseConnectionSettings.Normalize(connection);
+if (Environment.GetEnvironmentVariable("SHELFSYNC_DEMO_CONNECTION") is { } demoConnection)
+    ShelfSync.Api.DatabaseConnectionSettings.RequireDemoIsolation(connection, demoConnection);
 builder.Configuration["ConnectionStrings:ShelfSync"]=connection;
 builder.WebHost.ConfigureKestrel(options=>options.Limits.MaxRequestBodySize=64*1024);
 builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(connection));

@@ -17,7 +17,7 @@ function checkoutModule(secureFetch = () => { throw new Error('Unexpected reques
       assert.equal(name, './session')
       return { secureFetch }
     },
-    window: { location: { assign: url => destinations.push(url) } },
+    window: { location: { origin: 'http://127.0.0.1:5092', assign: url => destinations.push(url) } },
   }
   vm.runInNewContext(compiled, context)
   return { ...context.exports, destinations }
@@ -54,4 +54,14 @@ test('receipts require server-confirmed payment and forward cancellation', async
 test('receipt HTTP errors are surfaced instead of displaying a receipt', async () => {
   const checkout = checkoutModule(async () => ({ ok: false }))
   await assert.rejects(checkout.fetchPaidReceipt('order-1', new AbortController().signal), /Unable to load receipt/)
+})
+
+test('local simulated checkout requires explicit demo detection and an exact same-origin path', () => {
+  const checkout = checkoutModule()
+  const valid = 'http://127.0.0.1:5092/__demo/checkout/cs_test_demo_' + 'a'.repeat(32)
+  assert.throws(() => checkout.redirectToCheckout(valid))
+  checkout.redirectToCheckout(valid, true)
+  assert.equal(checkout.destinations[0], valid)
+  for (const bad of [valid + '?redirect=elsewhere', valid.replace(':5092', ':5000'), valid.replace('/__demo/checkout/', '/other/')])
+    assert.throws(() => checkout.redirectToCheckout(bad, true))
 })

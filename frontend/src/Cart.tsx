@@ -1,3 +1,4 @@
+import { demoPaymentsEnabled } from './demo'
 import { useRef, useState } from 'react'
 import { mutate } from './api'
 import { redirectToCheckout } from './checkout'
@@ -19,7 +20,7 @@ export default function Cart({lines,update,products,changed}:{lines:CartLine[];u
   update(lines.map(l=>({...l,quantity:l.quantity-(reserved.find(r=>r.productId===l.productId)?.quantity??0)})).filter(l=>l.quantity>0))
   saveRetry(null);changed()
   if(typeof result.body.url==='string'){
-   try { redirectToCheckout(result.body.url) }
+   try { redirectToCheckout(result.body.url, demoPaymentsEnabled()) }
    catch { setMessage('Your checkout was created. Use Resume checkout / payment status below to continue. Do not create another order.') }
   }else window.location.hash=`payment/${orderId}`
  }catch{setMessage('Checkout could not be confirmed. Retry the saved request to avoid duplicate orders. Your request remains saved in this tab.')}finally{busy.current=false;setPending(false)}}

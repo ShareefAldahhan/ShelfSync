@@ -34,8 +34,14 @@ export function money(cents: number): string {
   return usdFormatter.format(cents / 100)
 }
 
-export function redirectToCheckout(destination: string): void {
+export function redirectToCheckout(destination: string, allowLocalDemo = false): void {
   const url = new URL(destination)
+  if (allowLocalDemo && url.origin === window.location.origin &&
+      /^\/__demo\/checkout\/cs_test_demo_[a-f0-9]{32}$/.test(url.pathname) &&
+      !url.search && !url.hash && !url.username && !url.password) {
+    window.location.assign(url.href)
+    return
+  }
   if (url.protocol !== 'https:' || url.hostname !== 'checkout.stripe.com' ||
       url.username || url.password || url.port) {
     throw new Error('Invalid checkout destination.')
