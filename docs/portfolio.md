@@ -15,7 +15,7 @@ Choose three bullets to fit the resume:
 - Engineered an inventory and pickup platform with transactional row locking, idempotent operations and audit trails to protect stock across concurrent reservations, POS sales and order fulfillment.
 - Implemented four-role authorization, customer-owned orders, CSRF protection and Stripe sandbox checkout with server-calculated totals, signed-webhook verification and payment reconciliation before associate picking.
 - Diagnosed PostgreSQL connection exhaustion under load and consolidated connection pools; verified zero errors across 274,265 requests, including approximately 3,700 API requests/sec in a local browsing benchmark with 200 concurrent workers.
-- Built a repeatable release gate with 135 backend tests, frontend checks, published API permission tests, migration replay, backup/restore verification and checksummed deployment artifacts.
+- Built a repeatable release gate with 143 backend tests, frontend checks, published API permission tests, migration replay, backup/restore verification and checksummed deployment artifacts.
 
 Use https://github.com/ShareefAldahhan/ShelfSync as the project link. Do not describe the local load test as production throughput, 200 real shoppers, or an SLA. Docker configuration exists; container runtime validation and remote CI results must be verified separately before claiming them.
 
@@ -30,7 +30,7 @@ Use https://github.com/ShareefAldahhan/ShelfSync as the project link. Do not des
 | 3:00-4:00 | Show the benchmark table and explain the connection-pool failure/fix | Measured diagnosis rather than guessed scalability |
 | 4:00-5:00 | Show test/release evidence and one architecture diagram | Reproducibility, recovery and honest limitations |
 
-Use a separate demo database. Do not publish Admin credentials or give public visitors management privileges. Use test payment details only; do not enter a real card. For a local demonstration, use separate Customer and Associate sessions. A full application recording is not included.
+Use a separate demo database. Do not publish Admin credentials or give public visitors management privileges. Use test payment details only; do not enter a real card. For a local demonstration, use separate Customer and Associate sessions. The [application recording](demo/app-walkthrough.mp4) demonstrates the isolated simulated checkout and pickup flow.
 
 ## Interview deep dives
 
@@ -49,4 +49,4 @@ Use a separate demo database. Do not publish Admin credentials or give public vi
 - [Architecture](architecture.md), [API contract](api-contract.md), [checkout state model](checkout-first.md).
 - [Hosting configuration reference](public-deployment.md): optional future deployment settings.
 
-The earlier Stripe test payment was confirmed through provider reconciliation. Real SDK signature tests pass, but successful delivery of that payment's signed webhook was not observed. Demonstrate an actual hosted webhook before claiming that complete path has been verified publicly.
+An October 26 isolated check verified an actual Stripe CLI sandbox event reaching the real API, passing signature validation and matching the authoritative USD 2.97 session. This verifies local test-mode delivery; no public or live-money deployment is claimed. See [verification evidence](verification-2026-10-26.md).

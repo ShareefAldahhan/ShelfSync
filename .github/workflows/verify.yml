@@ -57,3 +57,10 @@ jobs:
           ./scripts/Verify-Http.ps1 -Published -ProductionHttpChecks -PublishDirectory artifacts/ci-publish
           ./scripts/Verify-Access.ps1 -PublishDirectory artifacts/ci-publish
       - run: docker build -t shelfsync:ci .
+      - name: Install browser test runtime
+        run: npx --prefix frontend playwright install --with-deps chromium
+      - name: Run isolated end-to-end browser tests
+        env:
+          SHELFSYNC_DEMO_TEST_CONNECTION: ${{ env.SHELFSYNC_TEST_CONNECTION }}
+          DEMO_RECORD: '0'
+        run: node scripts/Demo.mjs --test

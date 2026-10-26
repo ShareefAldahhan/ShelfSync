@@ -8,6 +8,18 @@ Customers build a cart and pay through Stripe's test checkout. Store associates 
 
 This project runs locally and uses fictional products. Stripe is in test mode, and email messages are displayed in an administrator preview inbox.
 
+## Try the isolated demo
+
+With Node.js 24, .NET 10 SDK and PostgreSQL 18 installed, run:
+
+```powershell
+node scripts/Demo.mjs
+```
+
+Open **http://127.0.0.1:5092**. The command builds the app and creates a fresh demo database, fictional products and Customer/Associate/Manager/Admin accounts. Payments are clearly labelled simulations, so no Stripe credentials are needed. The temporary demo accounts and setup details are in the [demo guide](docs/demo.md).
+
+[Watch the app walkthrough (MP4)](docs/demo/app-walkthrough.mp4) - Customer cart, simulated payment, receipt, then Associate picking and pickup in the actual app.
+
 ## How an order works
 
 1. A customer adds products to a cart. This does not reserve stock.
@@ -86,7 +98,7 @@ pwsh -File scripts/Verify-Release.ps1
 
 The release gate creates its own password-protected PostgreSQL cluster and `shelfsync_test` database. It applies migrations twice, runs backend/frontend tests, exercises the published API and account permissions, checks production HTTP rejection, and restores a backup into another test database for comparison. The existing development database is not used.
 
-The latest recorded local gate passed **135 backend tests and 3 frontend tests**, plus build, lint, published API and backup/restore checks. The badge above links to the current GitHub CI result; dated reports document earlier checkpoints.
+The latest recorded local gate passed **143 backend tests and 4 frontend tests**, followed by **4 browser scenarios**, plus build, lint, published API and backup/restore checks. The badge above links to the current GitHub CI result; dated reports document earlier checkpoints.
 
 To build a versioned package after the checks pass:
 
@@ -95,6 +107,8 @@ pwsh -File scripts/Ship-Local.ps1
 ```
 
 Packages under `artifacts/releases/` include the API, compiled frontend, migrations, setup documentation, file manifest and ZIP checksum. Credentials and database backups are excluded. See the [release guide](docs/local-release.md).
+
+Browser checks can be reproduced with `node scripts/Demo.mjs --test` after installing Playwright Chromium. See the [demo and browser-test guide](docs/demo.md).
 
 ## Load-test results
 
@@ -114,6 +128,7 @@ The API, database and generator ran on one Windows PC, using 500 products and 5,
 
 | Guide | Contents |
 |---|---|
+| [Demo and browser tests](docs/demo.md) | One-command demo, simulated checkout, browser suite and recording |
 | [Setup](docs/setup.md) | Prerequisites, database roles, configuration and troubleshooting |
 | [Architecture](docs/architecture.md) | Components, transactions and stock rules |
 | [API](docs/api-contract.md) | Routes, authorization and request formats |
@@ -126,6 +141,6 @@ The API, database and generator ran on one Windows PC, using 500 products and 5,
 
 ## Current limits
 
-Stripe supports test payments only. Email uses local previews. POS sales are simulated, and barcode lookup expects keyboard input from a scanner; phone-camera scanning is not implemented. The catalog currently returns all products, while order/history lists are paginated.
+Stripe supports test payments only. Email uses local previews. POS sales are simulated, and barcode lookup expects keyboard input from a scanner; phone-camera scanning is not implemented. The storefront catalog supports server-side search, department filters, sorting and pagination. The legacy product-list endpoint used by store checkout remains available.
 
-A completed Stripe test payment was confirmed through provider reconciliation. SDK signature tests pass, but direct signed-webhook delivery for that payment has not been verified. Full public hosting and real-money operation are outside the current local release.
+A separate October 26 Stripe CLI check verified actual sandbox event delivery, signature validation, stored-event handling and authoritative USD 2.97 payment confirmation against an isolated database. See [verification evidence](docs/verification-2026-10-26.md). Full public hosting and real-money operation are outside the current local release.

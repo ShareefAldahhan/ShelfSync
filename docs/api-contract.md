@@ -16,7 +16,8 @@ Business reads and writes require a known application role. See [accounts and ac
 
 | Method | Route | Body / result |
 | --- | --- | --- |
-| GET | /api/products | Array of product/inventory DTOs |
+| GET | /api/catalog | `{items,total,page,pageSize}`; optional search (max 100 chars), department, sort, page and pageSize (1-100, default 24) |
+| GET | /api/products | Legacy product/inventory array for store checkout |
 | GET | /api/products/{id} | One product, or 404 |
 | GET | /api/orders | Latest 100 orders, newest first |
 | POST | /api/reservations | `{productId,quantity}`; 201 reservation receipt |
@@ -92,3 +93,5 @@ Picking restriction: Associate-only callers must pick an active customer-owned r
 
 
 Checkout-first extension: POST `/api/cart/checkout` takes the same cart lines and UUID retry key, creates temporary holds and starts a single payment for the full cart. It returns the hosted URL and anchor orderId. Payment checkout accepts active RESERVED orders as well as pre-upgrade PICKED orders. POST `/api/payments/orders/{id}/cancel-checkout` expires an open provider session before releasing its whole cart. Order/receipt payment state comes from the payment-to-order links; receipts include checkoutItems and checkoutTotalCents. Associate picking queues exclude unpaid orders when payments are enabled. See checkout-first.md.
+
+Catalog sort values are `featured`, `price-low` and `price-high`. Departments match the storefront: All products, Pantry, Dairy & eggs, Produce, Bakery and Home & care. Ordering uses SKU/id tie-breakers. Search is a case-insensitive literal substring of product name/SKU; `%` and `_` are not wildcards. Invalid filters return 400.
