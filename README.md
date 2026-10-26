@@ -1,111 +1,131 @@
 # ShelfSync
 
-**Inventory reservations and order fulfillment with transactional stock protection.**
+[![Build and tests](https://github.com/ShareefAldahhan/ShelfSync/actions/workflows/verify.yml/badge.svg)](https://github.com/ShareefAldahhan/ShelfSync/actions/workflows/verify.yml)
 
-ShelfSync models one fictional store where online reservations and point-of-sale sales share shelf inventory. The application prevents software operations from claiming the same available units, handles reservation expiry, and records stock movements in an audit ledger.
+**A store inventory and pickup-order application built with ASP.NET Core, React, TypeScript and PostgreSQL.**
 
-Built with **ASP.NET Core 10 · PostgreSQL 18 · Npgsql · React · TypeScript · Vite**.
+Customers build a cart and pay through Stripe's test checkout. Store associates find the items, pick paid orders and complete pickup. Managers receive stock, correct counts and process returns. All of these operations share the same inventory, so the backend checks stock and records changes inside database transactions.
 
-![ShelfSync Market storefront](docs/images/storefront.png)
+This project runs locally and uses fictional products. Stripe is in test mode, and email messages are displayed in an administrator preview inbox.
 
-## For reviewers
+## How an order works
 
-Start with the [five-minute demo and resume project summary](docs/portfolio.md), then inspect the [measured load test](docs/benchmark-results-2026-10-25.md) and [release verification](docs/shipping-report-2026-10-25.md). The core engineering story is transactional inventory, retry-safe operations, payment reconciliation and a connection-pool issue found and fixed under load.
+1. A customer adds products to a cart. This does not reserve stock.
+2. Checkout checks current stock and prices, then holds the items while the customer pays.
+3. The backend verifies payment with Stripe. The customer can then view a receipt, and the order becomes available for picking.
+4. An associate picks the order. The quantity moves from shelf stock to picked stock.
+5. Completing pickup removes the quantity from picked stock and records the completed order.
 
-The $0 presentation is a static [portfolio showcase](showcase/index.html), with screenshots, an interactive workflow explanation and measured evidence. The full API/database remain locally runnable. See [free publishing](docs/free-portfolio.md).
+An abandoned checkout releases its hold after Stripe confirms cancellation or expiry. If the payment result is uncertain, the hold stays in place until reconciliation resolves it. A browser redirect alone does not confirm payment.
 
-## What works
+![Customer cart showing the checkout action and stock-hold explanation](docs/images/cart.png)
 
-- Click-through associate item pages with barcode, shelf location, stock buckets, sales history and inventory activity (requires the product-profile migration).
-- Stripe-hosted full-cart test checkout before picking, owner-bound server totals, signed webhook confirmation and duplicate-payment protection (private Stripe setup required).
-- Receiving, backroom-to-shelf replenishment, bounded returns, picked-order cancellation and low-stock views.
-- Keyboard-mode barcode lookup, atomic multi-product pickup carts, printable receipts and searchable paginated inventory history.
-- Administrator-only local email previews for order status and password recovery; no external email sending.
-- Safe idempotent reservations; checkout holds stay protected until verified payment, cancellation or provider expiry. Legacy unpaid reservations retain their 15-minute lifetime.
-- Operator shelf/bin location editing and audited shelf-count corrections with stale-count and reservation safeguards.
-- Orders screen with search, state filters, cancellation, picking, shortage reporting/resolution and fulfillment.
-- POS sales with event-based deduplication and stock validation.
-- Row locks and atomic database transactions for inventory mutations and audit events.
-- Background expiry processing and explicit lifecycle rules.
-- Individual Customer, Associate, Manager and Admin accounts using ASP.NET Core Identity; customer order ownership, account administration, security audit, CSRF protection and session revocation.
-- A combined dashboard/API release package, local startup scripts and CI configuration.
+## Accounts and store operations
+
+| Role | Main actions |
+|---|---|
+| Customer | Browse products, manage a cart, complete test checkout, view their own orders and receipts |
+| Associate | View barcode/bin/location information, receive and replenish stock, pick eligible customer orders, complete pickup and record simulated POS sales |
+| Manager | Associate operations, inventory corrections, returns and shortage resolution |
+| Admin | Account and role management, access audit, payment reconciliation and local email previews, plus store operations |
+
+Public signup creates a Customer account. Only an Admin can assign staff roles. The configured `operator` login is the protected recovery Admin; its password is chosen privately during setup.
+
+Product details show shelf/bin locations, stock quantities, sales history and recent inventory changes. Orders and inventory history support search and pagination. A keyboard-mode barcode scanner can be used for item lookup.
+
+![Associate product details showing barcode, location, inventory and sales history](docs/images/associate-details.png)
+
+## Technical decisions
+
+- **Stock changes use transactions and row locks.** Competing reservations and sales lock the relevant inventory before checking availability. Orders, stock movements, audit events and saved operation results commit together.
+- **Retries reuse an operation identifier.** A repeated request can return its earlier result instead of changing stock again. Reusing an identifier with a different payload is rejected.
+- **Payment state is separate from pickup state.** Payment confirmation is required before an associate can pick a customer's order. Stripe event signatures, server-owned amounts and provider reconciliation protect that boundary.
+- **Permissions are enforced by the API.** Customer order ownership and staff roles are checked on the server, alongside cookie authentication, CSRF protection and login throttling.
+- **Account and inventory queries share a bounded connection pool.** Load testing found that separate pools could exhaust PostgreSQL connections. The shared pool defaults to 80 connections, with explicit configuration supported.
+
+```mermaid
+flowchart LR
+    UI[React storefront and staff screens] --> API[ASP.NET Core API]
+    API --> AUTH[Identity and authorization]
+    API --> SERVICES[Inventory and order services]
+    SERVICES --> DB[(PostgreSQL)]
+    API --> PAY[Stripe test Checkout]
+    WORKERS[Payment reconciliation and reservation expiry] --> DB
+    WORKERS --> PAY
+```
+
+The application is a single deployable API that also serves the compiled frontend. Database changes are applied by a schema owner; the application uses a restricted runtime login and never runs migrations automatically.
 
 ## Run locally
 
-Requirements: **PowerShell 7, .NET 10 SDK, Node.js 24, PostgreSQL 18**.
+Requires **PowerShell 7, .NET 10 SDK, Node.js 24 and PostgreSQL 18**.
 
-First configure a development database and its connection as described in [setup](docs/setup.md). On the original development machine the database connection is already configured.
+```powershell
+git clone https://github.com/ShareefAldahhan/ShelfSync.git
+cd ShelfSync
+```
 
-From the repository root:
+1. Follow [database setup](docs/setup.md) to create a dedicated database and restricted application login. Apply `database/schema.sql` only to a new database, followed by migrations `001` through `005` and their required grants.
+2. Configure `ConnectionStrings:ShelfSync` privately through .NET user secrets or process configuration. Keep credentials out of source control.
+3. Choose the recovery Admin password and build/start the app:
 
 ```powershell
 pwsh -File scripts/Set-Operator.ps1
 pwsh -File scripts/Start-Local.ps1 -Build
 ```
 
-Apply all additive migrations and account grants first (see [accounts and access](docs/accounts.md)). Choose your recovery administrator password when prompted, then open **http://localhost:5000**. Default username: `operator`. Later starts need only `pwsh -File scripts/Start-Local.ps1`. The backend serves the compiled dashboard; no separate frontend server is needed.
+Open **http://localhost:5000**. Later starts use `pwsh -File scripts/Start-Local.ps1`. The backend serves the frontend, so a separate frontend server is unnecessary for the local release.
 
-For frontend development, run the backend on localhost:5000 and `npm ci` followed by `npm run dev` inside `frontend/`. Open localhost:5173; Vite proxies the API.
+For test checkout, configure Stripe privately with `scripts/Set-Payments.ps1` and forward Stripe test events to `/api/payments/stripe-webhook`. See [payment setup](docs/payments.md). Checkout stays unavailable until its test settings are configured.
 
-## Verify the release
+## Tests and release checks
 
 ```powershell
 pwsh -File scripts/Verify-Release.ps1
 ```
 
-This builds the release and runs the suite against a separate temporary, password-protected PostgreSQL instance. It does not modify the existing PostgreSQL service, databases or permissions. The temporary instance stops afterward; ignored diagnostic files remain under `artifacts/`.
+The release gate creates its own password-protected PostgreSQL cluster and `shelfsync_test` database. It applies migrations twice, runs backend/frontend tests, exercises the published API and account permissions, checks production HTTP rejection, and restores a backup into another test database for comparison. The existing development database is not used.
 
-**Verified 25 October 2026:** 122 backend tests and 3 frontend tests passed, with published workflow/access/transport checks, migration replay, isolated backup/restore, build/lint and zero reported production dependency advisories. A versioned local package includes a file manifest and ZIP checksum. Source has local uncommitted changes, recorded in release metadata. Remote CI and Docker execution were not run locally.
+The latest recorded local gate passed **135 backend tests and 3 frontend tests**, plus build, lint, published API and backup/restore checks. The badge above links to the current GitHub CI result; dated reports document earlier checkpoints.
 
-## Engineering highlights
-
-```mermaid
-flowchart LR
-    UI[React dashboard] --> AUTH[Identity, role policies and CSRF checks]
-    AUTH --> API[ASP.NET Core endpoints]
-    API --> SERVICES[Transactional services]
-    SERVICES --> DB[(PostgreSQL)]
-    WORKER[Expiry worker] --> DB
-    DB --> AUDIT[Orders, stock, audit events, replay results]
-```
-
-Reservations and POS sales serialize competing inventory changes using product inventory row locks. Successful stock/order/audit/replay writes commit together. A retried reservation uses the same operation key; a retried sale uses the same event ID. Reusing an identifier for a different payload is rejected.
-
-Shelf units and picked units are separate stock stages. Reservations hold shelf availability logically; picking physically moves the recorded quantity from shelf to picked; fulfillment consumes picked stock. The backend remains authoritative even if the dashboard is stale.
-
-## Package
+To build a versioned package after the checks pass:
 
 ```powershell
-pwsh -File scripts/Publish.ps1 -Archive
+pwsh -File scripts/Ship-Local.ps1
 ```
 
-Produces `artifacts/publish/`, `artifacts/publish.zip` and its SHA-256 checksum. The package includes build metadata, compiled API and dashboard. Configure database/operator secrets separately on the destination machine.
+Packages under `artifacts/releases/` include the API, compiled frontend, migrations, setup documentation, file manifest and ZIP checksum. Credentials and database backups are excluded. See the [release guide](docs/local-release.md).
 
-## Explore
+## Load-test results
 
-| Document | Contents |
-| --- | --- |
-| [Checkout flow](docs/checkout-first.md) | Pay before picking, grouped cart payments and safe hold release |
-| [Payments](docs/payments.md) | Stripe test setup, safeguards and payment limitations |
-| [Store operations](docs/store-operations.md) | Receiving, returns, carts, scanning, receipts and local mail previews |
-| [Accounts and access](docs/accounts.md) | Role matrix, account migration and recovery |
-| [Setup](docs/setup.md) | Prerequisites, database roles, configuration and startup |
-| [Architecture](docs/architecture.md) | Actual file map, request flow, stock rules and tradeoffs |
-| [Associate item details](docs/associate-details.md) | Metadata migration, stock definitions and sales history |
-| [API](docs/api-contract.md) | Implemented routes, authentication, payloads and errors |
-| [Release guide](docs/local-release.md) | Verification evidence, packaging and operational limits |
-| [Demo and portfolio notes](docs/portfolio.md) | Walkthrough, interview talking points and project description |
-| [Acceptance checklist](docs/acceptance-scenarios.md) | Current release criteria and future extensions |
-| [API benchmarking](docs/benchmarking.md) | Isolated load tests, throughput/latency reports, and connection budgets |
+A local benchmark sent **274,265 measured API requests with zero errors in the final run**.
 
-## Shipping a verified local release
+| Workload | Concurrent workers | API calls/second | p95 response time |
+|---|---:|---:|---:|
+| Mixed browsing | 200 | 3,709 | 72 ms |
+| Reserve/cancel across products | 200 | 2,754 | 103 ms |
+| Reserve/cancel on one product | 100 | 459 | 271 ms |
 
-Run `pwsh -File scripts/Ship-Local.ps1` to build, verify and package version 1.0.0 in a fresh `artifacts/releases/` directory. The package includes setup documentation, migrations, a manifest-verifying startup script and a ZIP checksum. See the [current release guide](docs/local-release.md).
+The API, database and generator ran on one Windows PC, using 500 products and 5,000 initial orders. Workers shared one authenticated Admin session and sent requests without think time. At 200 workers, contention on a single product exceeded the 500 ms p95 target. These measurements describe this local test; they do not establish production shopper capacity.
 
-## Scope and limits
+[Full results and limitations](docs/benchmark-results-2026-10-25.md) · [Run the benchmark](docs/benchmarking.md)
 
-ShelfSync is a local multi-role store application with fictional products. Customer, Associate, Manager and Admin accounts, customer-owned orders, stockroom/returns, paid-only picking, test-payment receipts and local email previews are implemented. Stripe is test-only; no real money or external email is sent. Orders and inventory history are paginated; the catalog currently returns all products.
+## Documentation
 
-POS sales are rejected when they would consume reserved stock. Inventory mutations recheck stock under database locks. Uncertain operations retain their retry identifiers in the same browser tab; closing it can lose those identifiers. Physical stock accuracy still depends on staff recording movements correctly.
+| Guide | Contents |
+|---|---|
+| [Setup](docs/setup.md) | Prerequisites, database roles, configuration and troubleshooting |
+| [Architecture](docs/architecture.md) | Components, transactions and stock rules |
+| [API](docs/api-contract.md) | Routes, authorization and request formats |
+| [Accounts](docs/accounts.md) | Roles, account administration and recovery |
+| [Checkout](docs/checkout-first.md) | Stock holds, grouped payments, cancellation and expiry |
+| [Payments](docs/payments.md) | Stripe test configuration and verification limits |
+| [Store operations](docs/store-operations.md) | Receiving, replenishment, returns, scanning and receipts |
+| [Release guide](docs/local-release.md) | Packaging, backup, restore and rollback |
+| [Project and interview notes](docs/portfolio.md) | Resume bullets and a local demonstration guide |
 
-Public hosting requires additional HTTPS/proxy, durable key storage, backup, monitoring, real-email and live-payment work. Local test and load-test evidence does not establish production-user capacity or an independent security certification. Historical checkpoints are preserved in [release history](docs/local-release-history.md); the current guide and source take precedence.
+## Current limits
+
+Stripe supports test payments only. Email uses local previews. POS sales are simulated, and barcode lookup expects keyboard input from a scanner; phone-camera scanning is not implemented. The catalog currently returns all products, while order/history lists are paginated.
+
+A completed Stripe test payment was confirmed through provider reconciliation. SDK signature tests pass, but direct signed-webhook delivery for that payment has not been verified. Full public hosting and real-money operation are outside the current local release.

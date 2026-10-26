@@ -1,6 +1,6 @@
 # Public portfolio deployment preparation
 
-Current decision: a strict $0 budget. The selected presentation is a GitHub Pages static showcase plus the locally runnable full application; see [free publishing](free-portfolio.md). The hosted-backend configuration below is retained as optional future work. No paid service is authorized or provisioned. Keep Stripe in test mode for a recruiter demo. A live merchant service is a separate scope with onboarding, real-money operational procedures and production email.
+Current scope: the full application runs locally, and the repository README explains it. The separate GitHub Pages showcase is retired. The settings below are an optional hosting reference; no public backend or paid service is part of the current release.
 
 ## Hosting configuration
 

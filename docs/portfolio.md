@@ -4,7 +4,7 @@
 
 ShelfSync is a full-stack store operations and pickup application built with .NET 10, React/TypeScript, PostgreSQL and Stripe test Checkout. Its strongest engineering story is keeping inventory and payment state consistent through concurrent requests, lost responses, payment delays and retries. It includes four server-enforced account roles, customer-owned orders, associate workflows, an audit trail and a verified local release pipeline.
 
-This is a portfolio/demo system with fictional products, not a claim of real customers or production retail usage. Public hosting is being prepared; no live URL is claimed until deployment is verified.
+The repository and README are the project presentation. The application runs locally with fictional products and Stripe test payments. No separate explanatory website is required.
 
 ## Resume-ready project entry
 
@@ -15,9 +15,9 @@ Choose three bullets to fit the resume:
 - Engineered an inventory and pickup platform with transactional row locking, idempotent operations and audit trails to protect stock across concurrent reservations, POS sales and order fulfillment.
 - Implemented four-role authorization, customer-owned orders, CSRF protection and Stripe sandbox checkout with server-calculated totals, signed-webhook verification and payment reconciliation before associate picking.
 - Diagnosed PostgreSQL connection exhaustion under load and consolidated connection pools; verified zero errors across 274,265 requests, including approximately 3,700 API requests/sec in a local browsing benchmark with 200 concurrent workers.
-- Built a repeatable release gate with 120+ backend tests, frontend checks, published API permission tests, migration replay, backup/restore verification and checksummed deployment artifacts.
+- Built a repeatable release gate with 135 backend tests, frontend checks, published API permission tests, migration replay, backup/restore verification and checksummed deployment artifacts.
 
-Use the actual repository and verified demo URL as links once published. Do not describe the local load test as production throughput, 200 real shoppers, or an SLA. Docker configuration exists; container runtime validation and remote CI results must be verified separately before claiming them.
+Use https://github.com/ShareefAldahhan/ShelfSync as the project link. Do not describe the local load test as production throughput, 200 real shoppers, or an SLA. Docker configuration exists; container runtime validation and remote CI results must be verified separately before claiming them.
 
 ## Five-minute recruiter walkthrough
 
@@ -30,7 +30,7 @@ Use the actual repository and verified demo URL as links once published. Do not 
 | 3:00-4:00 | Show the benchmark table and explain the connection-pool failure/fix | Measured diagnosis rather than guessed scalability |
 | 4:00-5:00 | Show test/release evidence and one architecture diagram | Reproducibility, recovery and honest limitations |
 
-Use a separate demo database. Do not publish Admin credentials or give public visitors management privileges. Use test payment details only; do not enter a real card. For a public demo, visitors can create Customer accounts; demonstrate staff operations in a recorded walkthrough or a controlled session. A recording is not included yet.
+Use a separate demo database. Do not publish Admin credentials or give public visitors management privileges. Use test payment details only; do not enter a real card. For a local demonstration, use separate Customer and Associate sessions. A full application recording is not included.
 
 ## Interview deep dives
 
@@ -47,6 +47,6 @@ Use a separate demo database. Do not publish Admin credentials or give public vi
 - [Benchmark results](benchmark-results-2026-10-25.md): workload, machine, concurrency, p95/p99, error counts and limitations.
 - [Shipping verification](shipping-report-2026-10-25.md): local release tests and checks.
 - [Architecture](architecture.md), [API contract](api-contract.md), [checkout state model](checkout-first.md).
-- [Public deployment preparation](public-deployment.md): configuration and outstanding launch decisions.
+- [Hosting configuration reference](public-deployment.md): optional future deployment settings.
 
 The earlier Stripe test payment was confirmed through provider reconciliation. Real SDK signature tests pass, but successful delivery of that payment's signed webhook was not observed. Demonstrate an actual hosted webhook before claiming that complete path has been verified publicly.
