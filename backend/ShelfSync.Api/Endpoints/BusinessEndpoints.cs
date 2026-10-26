@@ -12,6 +12,15 @@ public static class BusinessEndpoints
     {
         var api=app.MapGroup("/api").RequireAuthorization("ApplicationUser");
         api.MapGet("/products",async(ProductRepository r,CancellationToken ct)=>Results.Ok(await r.GetAllAsync(ct)));
+        api.MapGet("/catalog",async(string? search,string? department,string? sort,int? page,int? pageSize,ProductRepository r,CancellationToken ct)=>
+        {
+            search=(search??"").Trim();department??="All products";sort??="featured";
+            if(search.Length>100 || page is <1 or >100000 || pageSize is <1 or >100 ||
+               sort is not ("featured" or "price-low" or "price-high") ||
+               department is not ("All products" or "Pantry" or "Dairy & eggs" or "Produce" or "Bakery" or "Home & care"))
+                return Results.BadRequest(new{error="Invalid catalog filters or page size."});
+            return Results.Ok(await r.SearchAsync(search,department,sort,page??1,pageSize??24,ct));
+        });
         api.MapGet("/products/{id:guid}",async(Guid id,ProductRepository r,CancellationToken ct)=>
         {var product=await r.GetByIdAsync(id,ct);return product is null?Results.NotFound():Results.Ok(product);});
         api.MapGet("/products/{id:guid}/details",async(Guid id,ProductDetailsRepository r,CancellationToken ct)=>
